@@ -10,6 +10,7 @@ import { RegisterPage } from './features/auth/pages/RegisterPage';
 import { ProductDetailPage } from './features/products/pages/ProductDetailPage';
 import { ProfilePage } from './features/profile/pages/ProfilePage'; 
 import { CartPage } from './features/cart/pages/CartPage';
+import { CheckoutPage } from './features/checkout/pages/CheckoutPage';
 
 function App() {
   return (
@@ -28,7 +29,7 @@ function App() {
           <Route element={<ProtectedRoute />}>
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/cart" element={<CartPage />} />
-            {/* <Route path="/checkout" element={<CheckoutPage />} /> */}
+            <Route path="/checkout" element={<CheckoutPage />} />
           </Route>
 
         </Routes>

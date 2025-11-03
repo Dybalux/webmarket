@@ -89,9 +89,12 @@ export const CartPage = () => {
               <span className="text-xl font-bold text-gray-900">Total</span>
               <span className="text-2xl font-bold text-blue-600">{formatPrice(subtotal)}</span>
             </div>
-            <button className="w-full mt-6 bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition">
+            <Link 
+              to="/checkout"
+              className="block w-full text-center mt-6 bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition"
+            >
               Proceder al Pago
-            </button>
+            </Link>
           </div>
         </div>
 
