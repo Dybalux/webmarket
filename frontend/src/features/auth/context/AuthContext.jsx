@@ -88,6 +88,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     register,
+    setUser,
   };
 
   // No mostramos nada hasta saber si estamos logueados o no
