@@ -1,10 +1,12 @@
 // frontend/src/features/auth/context/AuthContext.jsx
 import { createContext, useContext, useState, useEffect } from 'react';
 import { apiFetch, loginApi } from '../../../lib/api'; // Importamos el cliente API
+import { useNavigate } from 'react-router-dom';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
+  const navigate = useNavigate();
   const [token, setToken] = useState(() => localStorage.getItem('token')); // Lee el token al cargar
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true); // Para saber si estamos verificando el token
@@ -50,6 +52,27 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // --- ¡NUEVA FUNCIÓN DE REGISTRO! ---
+  const register = async (username, email, password, birth_date) => {
+    try {
+      // 1. Llama al endpoint de registro
+      const newUser = await apiFetch('/auth/register', {
+        method: 'POST',
+        body: { username, email, password, birth_date }
+      }); //
+      
+      // 2. Si el registro es exitoso, loguea al usuario automáticamente
+      await login(email, password); // Usa el email o username para loguear
+      
+      // 3. Redirige al Home (o a donde quieras)
+      navigate('/'); 
+
+    } catch (error) {
+      console.error("Error al registrar:", error);
+      throw error; // Lanza el error para que el formulario lo muestre
+    }
+  };
+
   // Función de Logout
   const logout = () => {
     setToken(null);
@@ -64,7 +87,7 @@ export const AuthProvider = ({ children }) => {
     loading,
     login,
     logout,
-    // register,
+    register,
   };
 
   // No mostramos nada hasta saber si estamos logueados o no

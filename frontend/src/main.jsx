@@ -9,10 +9,10 @@ import App from './App.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <AuthProvider> {/* <--- 3. Envolver con el "cerebro" */}
-      <BrowserRouter> {/* <--- 4. Envolver con el Router */}
+    <BrowserRouter> {/* <--- 1. El Router ENVUELVE TODO */}
+      <AuthProvider> {/* <--- 2. El Cerebro va ADENTRO */}
         <App />
-      </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </BrowserRouter>
   </StrictMode>,
 )
