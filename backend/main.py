@@ -59,7 +59,7 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=True, # Permite cookies y encabezados de autorización
     allow_methods=["*"],    # Permite todos los métodos (GET, POST, etc.)
-    #allow_headers=["*"],    # Permite todos los encabezados
+    allow_headers=["*"],    # Permite todos los encabezados
 )
 
 # Rutas principales

@@ -20,17 +20,17 @@ services:
     stdin_open: true
     tty: true
 
-  # ¡NUEVO SERVICIO DEL FRONTEND (Vite en modo desarrollo)!
-  frontend:
-    container_name: frontend
-    image: node:20-alpine # Usamos una imagen ligera de Node
-    command: sh -c "npm install && npm run dev -- --host" # Instala y corre Vite
-    restart: always
-    ports:
-      - "5173:5173" # Puerto por defecto de Vite
-    volumes:
-      - ./frontend:/app # Mapea tu código frontend
-    working_dir: /app
+  # # ¡NUEVO SERVICIO DEL FRONTEND (Vite en modo desarrollo)!
+  # frontend:
+  #   container_name: frontend
+  #   image: node:20-alpine # Usamos una imagen ligera de Node
+  #   command: sh -c "npm install && npm run dev -- --host" # Instala y corre Vite
+  #   restart: always
+  #   ports:
+  #     - "5173:5173" # Puerto por defecto de Vite
+  #   volumes:
+  #     - ./frontend:/app # Mapea tu código frontend
+  #   working_dir: /app
     
   mongo_bebidas:
     image: mongo:latest
