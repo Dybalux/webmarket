@@ -1,6 +1,13 @@
+import { ProductList } from '../features/products/components/ProductList';
+
 export const HomePage = () => (
-  <div className="p-8">
-    <h1 className="text-3xl font-bold text-gray-800">Bienvenidos a WebMarket</h1>
-    <p className="text-gray-600 mt-2">Tu tienda de bebidas online.</p>
+  <div>
+    <div className="bg-blue-700 text-white p-12 rounded-lg mb-8 text-center">
+      <h1 className="text-4xl font-bold mb-2">¡Bienvenido a WebMarket!</h1>
+      <p className="text-xl">Tu tienda de bebidas online.</p>
+    </div>
+
+    {/* Aquí renderizamos la lista de productos */}
+    <ProductList />
   </div>
 );
