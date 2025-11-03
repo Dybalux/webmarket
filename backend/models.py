@@ -136,11 +136,23 @@ class TokenData(BaseModel):
 class CartItem(BaseModel):
     product_id: str = Field(..., description="ID del producto en el carrito")
     quantity: int = Field(..., gt=0, description="Cantidad del producto (mayor que cero)")
+    # --- CAMPOS NUEVOS (Opcionales) ---
+    # Estos campos NO se guardan en la DB del carrito,
+    # pero los usamos para "popular" el objeto.
+    name: Optional[str] = None
+    price: Optional[float] = None
+    image_url: Optional[str] = None
 
 class Cart(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
     user_id: str = Field(..., description="ID del usuario propietario del carrito")
     items: List[CartItem] = [] # Lista de productos en el carrito
+    # --- CAMPOS NUEVOS (Opcionales) ---
+    # Estos campos NO se guardan en la DB del carrito,
+    # pero los "populamos" al leer el carrito.
+    name: Optional[str] = None
+    price: Optional[float] = None
+    image_url: Optional[str] = None
     
     model_config = {
         "populate_by_name": True,

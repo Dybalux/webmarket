@@ -1,3 +1,4 @@
+# backend/routers/cart.py (CORREGIDO)
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Optional
 from bson import ObjectId
@@ -20,32 +21,61 @@ def get_products_collection(db=Depends(get_database)):
     return get_collection("products")
 
 # --- Funciones auxiliares para el carrito ---
-async def get_user_cart(carts_collection, user_id: str) -> Optional[Cart]:
-    """Obtiene el carrito de un usuario, o crea uno si no existe."""
+async def get_user_cart(carts_collection, products_collection, user_id: str) -> Optional[Cart]:
+    """Obtiene el carrito de un usuario. ¡Popula los detalles del producto!"""
     cart_db = await carts_collection.find_one({"user_id": user_id})
-    if cart_db:
-        cart_db["_id"] = str(cart_db["_id"]) # Convertir ObjectId a str para Pydantic
-        return Cart(**cart_db)
     
-    # Si no existe, creamos un carrito vacío para el usuario
-    new_cart_data = {"user_id": user_id, "items": []}
-    result = await carts_collection.insert_one(new_cart_data)
-    new_cart_data["_id"] = str(result.inserted_id) # Aseguramos que el ID esté presente para Pydantic
-    return Cart(**new_cart_data)
+    if not cart_db:
+        # Si no existe, creamos un carrito vacío para el usuario
+        new_cart_data = {"user_id": user_id, "items": []}
+        result = await carts_collection.insert_one(new_cart_data)
+        new_cart_data["_id"] = str(result.inserted_id)
+        return Cart(**new_cart_data)
+
+    # --- LÓGICA DE "POPULATE" ---
+    populated_items = []
+    for item_data in cart_db.get("items", []):
+        product_id = item_data.get("product_id")
+        if not ObjectId.is_valid(product_id):
+            continue 
+            
+        product_db = await products_collection.find_one({"_id": ObjectId(product_id)})
+        
+        if product_db:
+            item_with_details = {
+                "product_id": str(product_db["_id"]),
+                "quantity": item_data.get("quantity", 0),
+                "name": product_db.get("name"),
+                "price": product_db.get("price"),
+                "image_url": product_db.get("image_url")
+            }
+            populated_items.append(item_with_details)
+    
+    cart_db["items"] = populated_items
+    cart_db["_id"] = str(cart_db["_id"])
+    return Cart(**cart_db)
 
 async def save_cart(carts_collection, cart: Cart):
     """Guarda o actualiza un carrito en la base de datos."""
+    
+    # Convertimos los items (que ahora tienen detalles) 
+    # de vuelta a items simples para guardar en la DB.
+    simple_items = [
+        {"product_id": item.product_id, "quantity": item.quantity} 
+        for item in cart.items
+    ]
+    
     cart_dict = cart.model_dump(by_alias=True, exclude_unset=True)
     
-    # Si el carrito ya tiene un _id, es una actualización
     if cart.id:
         await carts_collection.update_one(
             {"_id": ObjectId(cart.id)},
-            {"$set": {"items": cart_dict["items"], "user_id": cart_dict["user_id"]}}
+            {"$set": {"items": simple_items, "user_id": cart_dict["user_id"]}}
         )
-    else: # Si no tiene _id, es un nuevo carrito
+    else:
+        cart_dict["items"] = simple_items # Aseguramos guardar items simples
         result = await carts_collection.insert_one(cart_dict)
-        cart.id = str(result.inserted_id) # Actualizamos el ID en el objeto Python
+        cart.id = str(result.inserted_id)
     return cart
 
 # --- Endpoints del carrito ---
@@ -53,15 +83,13 @@ async def save_cart(carts_collection, cart: Cart):
 async def get_cart(
     user_id: str = Depends(get_current_active_user_id),
     carts_collection = Depends(get_carts_collection),
-    # Requiere que el usuario esté verificado para ver el carrito de bebidas alcohólicas
-    # Opcional: podrías permitir ver el carrito sin verificar, pero no avanzar al checkout
+    products_collection = Depends(get_products_collection), # Dependencia añadida
     current_verified_user: TokenData = Depends(get_current_verified_user) 
 ):
     """
-    Obtiene el carrito de compras del usuario autenticado. Si no existe, crea uno vacío.
-    Requiere que el usuario haya verificado su mayoría de edad.
+    Obtiene el carrito de compras del usuario autenticado.
     """
-    cart = await get_user_cart(carts_collection, user_id)
+    cart = await get_user_cart(carts_collection, products_collection, user_id)
     return cart
 
 @router.post("/add", response_model=Cart)
@@ -74,7 +102,6 @@ async def add_to_cart(
 ):
     """
     Añade un producto al carrito de compras del usuario o actualiza su cantidad.
-    Requiere que el usuario haya verificado su mayoría de edad.
     """
     # 1. Verificar que el producto exista y tenga stock suficiente
     product_db = await products_collection.find_one({"_id": ObjectId(cart_item_data.product_id)})
@@ -88,7 +115,8 @@ async def add_to_cart(
         )
 
     # 2. Obtener o crear el carrito del usuario
-    cart = await get_user_cart(carts_collection, user_id)
+    # --- ¡ARREGLO AQUÍ! ---
+    cart = await get_user_cart(carts_collection, products_collection, user_id)
 
     # 3. Añadir/actualizar el producto en el carrito
     found = False
@@ -99,6 +127,10 @@ async def add_to_cart(
             break
     
     if not found:
+        # Si no lo encontró, populamos los datos del nuevo item
+        cart_item_data.name = product_db.get("name")
+        cart_item_data.price = product_db.get("price")
+        cart_item_data.image_url = product_db.get("image_url")
         cart.items.append(cart_item_data)
     
     # 4. Guardar el carrito actualizado
@@ -108,7 +140,7 @@ async def add_to_cart(
 
 @router.put("/update", response_model=Cart)
 async def update_cart_item_quantity(
-    cart_item_data: CartItem, # product_id y la nueva cantidad total deseada
+    cart_item_data: CartItem,
     user_id: str = Depends(get_current_active_user_id),
     carts_collection = Depends(get_carts_collection),
     products_collection = Depends(get_products_collection),
@@ -116,8 +148,6 @@ async def update_cart_item_quantity(
 ):
     """
     Actualiza la cantidad de un producto específico en el carrito.
-    Si la cantidad es 0, el producto se elimina del carrito.
-    Requiere que el usuario haya verificado su mayoría de edad.
     """
     # 1. Verificar stock si la cantidad es > 0
     if cart_item_data.quantity > 0:
@@ -132,7 +162,8 @@ async def update_cart_item_quantity(
             )
             
     # 2. Obtener el carrito del usuario
-    cart = await get_user_cart(carts_collection, user_id)
+    # --- ¡ARREGLO AQUÍ! ---
+    cart = await get_user_cart(carts_collection, products_collection, user_id)
 
     # 3. Actualizar la cantidad o eliminar
     updated_items = []
@@ -143,7 +174,6 @@ async def update_cart_item_quantity(
             if cart_item_data.quantity > 0:
                 item.quantity = cart_item_data.quantity
                 updated_items.append(item)
-            # Si quantity es 0, simplemente no lo añadimos a updated_items (lo eliminamos)
         else:
             updated_items.append(item)
     
@@ -162,16 +192,17 @@ async def remove_from_cart(
     product_id: str,
     user_id: str = Depends(get_current_active_user_id),
     carts_collection = Depends(get_carts_collection),
+    products_collection = Depends(get_products_collection), # <-- AÑADIDA DEPENDENCIA
     current_verified_user: TokenData = Depends(get_current_verified_user)
 ):
     """
     Elimina un producto del carrito de compras del usuario.
-    Requiere que el usuario haya verificado su mayoría de edad.
     """
     if not ObjectId.is_valid(product_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto inválido.")
 
-    cart = await get_user_cart(carts_collection, user_id)
+    # --- ¡ARREGLO AQUÍ! ---
+    cart = await get_user_cart(carts_collection, products_collection, user_id)
     
     original_item_count = len(cart.items)
     cart.items = [item for item in cart.items if item.product_id != product_id]
@@ -187,13 +218,14 @@ async def remove_from_cart(
 async def clear_cart(
     user_id: str = Depends(get_current_active_user_id),
     carts_collection = Depends(get_carts_collection),
+    products_collection = Depends(get_products_collection), # <-- AÑADIDA DEPENDENCIA
     current_verified_user: TokenData = Depends(get_current_verified_user)
 ):
     """
     Vacía completamente el carrito de compras del usuario.
-    Requiere que el usuario haya verificado su mayoría de edad.
     """
-    cart = await get_user_cart(carts_collection, user_id)
+    # --- ¡ARREGLO AQUÍ! ---
+    cart = await get_user_cart(carts_collection, products_collection, user_id)
     cart.items = [] # Vaciar la lista de ítems
     await save_cart(carts_collection, cart)
     logger.info(f"Usuario {user_id} ha vaciado su carrito.")
