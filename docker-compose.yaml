@@ -53,6 +53,18 @@ services:
     volumes:
       - ./data/redis-data:/data
 
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok
+    restart: always
+    command: http --authtoken=$NGROK_AUTH_TOKEN webmarketapi:8000
+    ports:
+      - "4040:4040"
+    depends_on:
+      - webmarketapi
+    env_file:
+      - ./backend/.env
+
 networks:
   default: 
     name: webmarket-network

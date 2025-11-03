@@ -185,7 +185,7 @@ class OrderCreate(BaseModel):
     # payment_method_id: str # ID del método de pago o de la pasarela si fuera necesario aquí
 
 class Order(BaseModel):
-    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    id: Optional[PyObjectId] = Field(default=None, alias="_id",serialization_alias="id")
     user_id: str
     items: List[OrderItem]
     total_amount: float = Field(..., ge=0)
