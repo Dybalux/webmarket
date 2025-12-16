@@ -1,10 +1,21 @@
 # Archivos de caché de Python
 __pycache__/
+*.pyc
+*.pyo
 venv/
+env/
 data/
 generate_secret.py
 # Variables de entorno secretas
 .env
+
+# Data
+data/
+
+# Caché de archivos
+data/
+
+# Archivos de configuración
 __pycache__/config.cpython-313.pyc
 __pycache__/config.cpython-313.pyc
 __pycache__/main.cpython-313.pyc

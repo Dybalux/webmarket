@@ -52,19 +52,25 @@ origins = [
     "http://localhost:3000",  # Origen común para React en desarrollo
     "http://localhost:8080",  # Origen común para Vue en desarrollo
     "http://localhost:4200",  # Origen común para Angular en desarrollo
-    "*"                       # Para desarrollo, permite cualquier origen. ¡SÉ CUIDADOSO EN PRODUCCIÓN!
+    # Railway genera URLs como: https://tu-app-production.up.railway.app
+    "https://*.railway.app",
 ]
+
+# En producción, NUNCA usar "*"
+if settings.ENV.lower() == "development":
+    origins.append("*")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True, # Permite cookies y encabezados de autorización
     allow_methods=["*"],    # Permite todos los métodos (GET, POST, etc.)
-    #allow_headers=["*"],    # Permite todos los encabezados
+    allow_headers=["*"],    # Permite todos los encabezados
 )
 
 # Rutas principales
 
-# Montar routers
+# Montar rutas
 app.include_router(products.router, prefix="/products", tags=["Productos"])
 app.include_router(auth.router, prefix="/auth", tags=["Autenticación"])
 app.include_router(age_verification.router, prefix="/age-verification", tags=["Verificación de Edad"])
@@ -76,4 +82,12 @@ app.include_router(inventory.router, prefix="/inventory", tags=["Inventario"])
 # Punto de entrada
 if __name__ == "__main__":
     logger.info(f"🌍 Ambiente: {settings.ENV}")
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=settings.ENV.lower() == "development")
+
+    #Railway provee la variable PORT
+    port = int(os.environ.get("PORT", 8000))
+
+    # En desarollo con recarga automática, en producción sin recarga
+    if(settings.ENV.lower() == "development"):
+        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    else:
+        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
