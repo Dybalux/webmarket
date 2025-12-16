@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
-from database import connect_db, close_db
+from database import connect_db, close_db, get_database
 from routers import auth, products, age_verification, cart, orders, payments, inventory, admin
 from contextlib import asynccontextmanager
+from datetime import datetime
 import uvicorn
 import logging
 import os
@@ -72,6 +73,58 @@ app.add_middleware(
 )
 
 # Rutas principales
+
+# Health Check Endpoint
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """
+    Endpoint de health check para verificar el estado de la API.
+    Verifica la conexión a MongoDB y Redis.
+    """
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "service": "EscabiAPI",
+        "version": "0.0.1",
+        "checks": {}
+    }
+    
+    # Verificar MongoDB
+    try:
+        db = get_database()
+        # Hacer un ping simple a la base de datos
+        await db.command("ping")
+        health_status["checks"]["mongodb"] = {
+            "status": "up",
+            "message": "Conexión exitosa"
+        }
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["checks"]["mongodb"] = {
+            "status": "down",
+            "message": f"Error de conexión: {str(e)}"
+        }
+        logger.error(f"Health check - MongoDB error: {e}")
+    
+    # Verificar Redis (opcional, puede no estar disponible en desarrollo)
+    try:
+        # Intentar hacer ping a Redis si está configurado
+        redis_connection = redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+        await redis_connection.ping()
+        await redis_connection.close()
+        health_status["checks"]["redis"] = {
+            "status": "up",
+            "message": "Conexión exitosa"
+        }
+    except Exception as e:
+        # Redis es opcional, no marca la API como unhealthy
+        health_status["checks"]["redis"] = {
+            "status": "down",
+            "message": f"No disponible: {str(e)}"
+        }
+        logger.warning(f"Health check - Redis no disponible: {e}")
+    
+    return health_status
 
 # Montar rutas
 app.include_router(products.router, prefix="/products", tags=["Productos"])
