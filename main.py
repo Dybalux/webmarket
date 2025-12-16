@@ -53,10 +53,9 @@ origins = [
     "http://localhost:3000",  # Origen común para React en desarrollo
     "http://localhost:8080",  # Origen común para Vue en desarrollo
     "http://localhost:4200",  # Origen común para Angular en desarrollo
-    # Railway genera URLs como: https://tu-app-production.up.railway.app
-    "https://*.railway.app",
-    # Vercel
-    "https://escabi-frontend.vercel.app",  # Producción Vercel
+    # Vercel - deployment URLs
+    "https://escabi-frontend-3dtk1loe5-dybaluxs-projects.vercel.app",  # Current Vercel deployment
+    "https://escabi-frontend.vercel.app",  # Production Vercel (if you set up custom domain)
 ]
 
 # En producción, NUNCA usar "*"
