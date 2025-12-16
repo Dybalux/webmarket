@@ -6,6 +6,7 @@ from routers import auth, products, age_verification, cart, orders,payments , in
 from contextlib import asynccontextmanager
 import uvicorn
 import logging
+import os
 import redis.asyncio as redis
 from fastapi_limiter import FastAPILimiter
 from fastapi_limiter.depends import RateLimiter
