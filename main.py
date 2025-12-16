@@ -55,6 +55,8 @@ origins = [
     "http://localhost:4200",  # Origen común para Angular en desarrollo
     # Railway genera URLs como: https://tu-app-production.up.railway.app
     "https://*.railway.app",
+    # Vercel
+    "https://escabi-frontend.vercel.app",  # Producción Vercel
 ]
 
 # En producción, NUNCA usar "*"
