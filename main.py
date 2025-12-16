@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database import connect_db, close_db
-from routers import auth, products, age_verification, cart, orders,payments , inventory
+from routers import auth, products, age_verification, cart, orders, payments, inventory, admin
 from contextlib import asynccontextmanager
 import uvicorn
 import logging
@@ -51,6 +51,7 @@ app = FastAPI(
 # Ejemplo: ["https://www.mitienda.com", "https://mitienda.com"]
 origins = [
     "http://localhost:3000",  # Origen común para React en desarrollo
+    "http://localhost:5173",  # Vite default port (React/Vue)
     "http://localhost:8080",  # Origen común para Vue en desarrollo
     "http://localhost:4200",  # Origen común para Angular en desarrollo
     # Vercel - deployment URLs
@@ -80,6 +81,7 @@ app.include_router(cart.router, prefix="/cart", tags=["Carrito de Compras"])
 app.include_router(orders.router, prefix="/orders", tags=["Pedidos"])
 app.include_router(payments.router, prefix="/payments", tags=["Pagos"])
 app.include_router(inventory.router, prefix="/inventory", tags=["Inventario"])
+app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 
 # Punto de entrada
 if __name__ == "__main__":
