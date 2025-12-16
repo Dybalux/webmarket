@@ -82,12 +82,14 @@ app.include_router(inventory.router, prefix="/inventory", tags=["Inventario"])
 
 # Punto de entrada
 if __name__ == "__main__":
+    import os
     logger.info(f"🌍 Ambiente: {settings.ENV}")
 
     #Railway provee la variable PORT
     port = int(os.environ.get("PORT", 8000))
+    logger.info(f"🚀 Iniciando servidor en puerto {port}")
 
-    # En desarollo con recarga automática, en producción sin recarga
+    # En desarollo con recarga asutomática, en producción sin recarga
     if(settings.ENV.lower() == "development"):
         uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
     else:
