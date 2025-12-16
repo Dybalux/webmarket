@@ -49,6 +49,7 @@ class ProductCategory(str, enum.Enum):
     SPIRITS_GIN = "Gin"
     SPIRITS_RUM = "Ron"
     SPIRITS_TEQUILA = "Tequila"
+    SPIRITS_FERNET = "Fernet"
     SOFT_DRINK = "Gaseosa" 
     OTHER = "Otro"
 
