@@ -91,9 +91,9 @@ async def health_check():
     
     # Verificar MongoDB
     try:
-        db = get_database()
+        database = await get_database()
         # Hacer un ping simple a la base de datos
-        await db.command("ping")
+        await database.command("ping")
         health_status["checks"]["mongodb"] = {
             "status": "up",
             "message": "Conexión exitosa"
