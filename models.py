@@ -126,16 +126,52 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
+class TokenResponse(BaseModel):
+    """Respuesta completa de autenticación con access y refresh tokens"""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int  # Segundos hasta expiración del access token
+
 class TokenData(BaseModel):
     username: Optional[str] = None
     user_id: Optional[str] = None
     roles: List[UserRole] = []
     age_verified: bool = False # Para pasar en el token la verificación de edad
 
+class RefreshToken(BaseModel):
+    """Modelo para almacenar refresh tokens en la base de datos"""
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    token: str = Field(..., description="El refresh token hasheado")
+    user_id: str = Field(..., description="ID del usuario propietario del token")
+    expires_at: datetime = Field(..., description="Fecha de expiración del refresh token")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    revoked: bool = Field(default=False, description="Si el token ha sido revocado")
+    
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
+        arbitrary_types_allowed = True
+
 class AgeVerificationResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+# Modelos para Paginación
+class PaginationMeta(BaseModel):
+    """Metadatos de paginación"""
+    total: int = Field(..., description="Total de items disponibles")
+    page: int = Field(..., description="Página actual (1-indexed)")
+    page_size: int = Field(..., description="Tamaño de página")
+    total_pages: int = Field(..., description="Total de páginas")
+    has_next: bool = Field(..., description="Si existe página siguiente")
+    has_prev: bool = Field(..., description="Si existe página anterior")
+
+class PaginatedResponse(BaseModel):
+    """Respuesta paginada genérica"""
+    items: List[any] = Field(..., description="Items de la página actual")
+    meta: PaginationMeta = Field(..., description="Metadatos de paginación")
 
 
 # Modelos para Carrito de Compras

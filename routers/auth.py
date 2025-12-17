@@ -6,8 +6,8 @@ from typing import Annotated
 from pymongo.errors import DuplicateKeyError
 from bson import ObjectId # Para manejar los IDs de MongoDB
 
-from models import UserRegister, UserLogin, UserResponse, Token, UserRole,TokenData
-from security import get_password_hash, verify_password, create_access_token, get_current_user_token_data
+from models import UserRegister, UserLogin, UserResponse, Token, TokenResponse, RefreshToken, UserRole, TokenData
+from security import get_password_hash, verify_password, create_access_token, create_refresh_token, hash_token, verify_refresh_token, get_current_user_token_data
 from database import get_database, get_collection
 from config import settings
 import logging
@@ -19,6 +19,9 @@ router = APIRouter()
 # Colección de usuarios en MongoDB
 def get_users_collection(db=Depends(get_database)):
     return get_collection("users")
+
+def get_refresh_tokens_collection(db=Depends(get_database)):
+    return get_collection("refresh_tokens")
 
 # --- Funciones Auxiliares para DB (simuladas por ahora) ---
 # En un proyecto más grande, estas irían en una capa de servicios o repositorios.
@@ -97,13 +100,14 @@ async def register_user(
     return new_user
 
 # Se permitirán un máximo de 5 intentos de login por minuto desde la misma dirección IP. Si se supera, la API devolverá automáticamente un error 429 Too Many Requests.
-@router.post("/token", response_model=Token, operation_id="auth_login_token", dependencies=[Depends(RateLimiter(times=5, seconds=60))])
+@router.post("/token", response_model=TokenResponse, operation_id="auth_login_token", dependencies=[Depends(RateLimiter(times=5, seconds=60))])
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    users_collection = Depends(get_users_collection)
+    users_collection = Depends(get_users_collection),
+    refresh_tokens_collection = Depends(get_refresh_tokens_collection)
 ):
     """
-    Genera un token de acceso JWT para un usuario autenticado.
+    Genera un token de acceso JWT y un refresh token para un usuario autenticado.
     Usa el estándar OAuth2 con username y password en un formulario.
     """
     user = await get_user_by_username_or_email(users_collection, form_data.username)
@@ -121,17 +125,125 @@ async def login_for_access_token(
     user_roles = [UserRole(role) for role in user.get("role", [UserRole.CUSTOMER.value])] if isinstance(user.get("role"), list) else [UserRole(user.get("role", UserRole.CUSTOMER.value))]
     user_age_verified = user.get("age_verified", False)
 
+    # Crear access token
     access_token = create_access_token(
         data={
             "sub": user["username"],
-            "user_id": str(user["_id"]), # Convertir ObjectId a str
+            "user_id": str(user["_id"]),
             "roles": [role.value for role in user_roles],
             "age_verified": user_age_verified
         },
         expires_delta=access_token_expires
     )
-    logger.info(f"Usuario {user['username']} ha iniciado sesión y recibido un token.")
-    return {"access_token": access_token, "token_type": "bearer"}
+    
+    # Crear refresh token
+    refresh_token = create_refresh_token()
+    refresh_token_expires = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    # Guardar refresh token hasheado en la base de datos
+    refresh_token_data = {
+        "token": hash_token(refresh_token),
+        "user_id": str(user["_id"]),
+        "expires_at": refresh_token_expires,
+        "created_at": datetime.utcnow(),
+        "revoked": False
+    }
+    await refresh_tokens_collection.insert_one(refresh_token_data)
+    
+    logger.info(f"Usuario {user['username']} ha iniciado sesión y recibido tokens.")
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    }
+
+@router.post("/refresh", response_model=TokenResponse, operation_id="auth_refresh_token")
+async def refresh_access_token(
+    refresh_token: str,
+    users_collection = Depends(get_users_collection),
+    refresh_tokens_collection = Depends(get_refresh_tokens_collection)
+):
+    """
+    Genera un nuevo access token usando un refresh token válido.
+    El refresh token debe ser válido y no estar revocado.
+    """
+    # Buscar el refresh token en la base de datos
+    refresh_token_docs = await refresh_tokens_collection.find({"revoked": False}).to_list(length=None)
+    
+    valid_token_doc = None
+    for token_doc in refresh_token_docs:
+        if verify_refresh_token(refresh_token, token_doc["token"]):
+            valid_token_doc = token_doc
+            break
+    
+    if not valid_token_doc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token inválido o revocado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Verificar que no haya expirado
+    if valid_token_doc["expires_at"] < datetime.utcnow():
+        await refresh_tokens_collection.delete_one({"_id": valid_token_doc["_id"]})
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Obtener el usuario
+    user = await users_collection.find_one({"_id": ObjectId(valid_token_doc["user_id"])})
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+    
+    # Preparar datos para el nuevo access token
+    user_roles = [UserRole(role) for role in user.get("role", [UserRole.CUSTOMER.value])] if isinstance(user.get("role"), list) else [UserRole(user.get("role", UserRole.CUSTOMER.value))]
+    user_age_verified = user.get("age_verified", False)
+    
+    # Crear nuevo access token
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    new_access_token = create_access_token(
+        data={
+            "sub": user["username"],
+            "user_id": str(user["_id"]),
+            "roles": [role.value for role in user_roles],
+            "age_verified": user_age_verified
+        },
+        expires_delta=access_token_expires
+    )
+    
+    # Crear nuevo refresh token
+    new_refresh_token = create_refresh_token()
+    new_refresh_token_expires = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    # Revocar el refresh token anterior
+    await refresh_tokens_collection.update_one(
+        {"_id": valid_token_doc["_id"]},
+        {"$set": {"revoked": True}}
+    )
+    
+    # Guardar el nuevo refresh token
+    new_refresh_token_data = {
+        "token": hash_token(new_refresh_token),
+        "user_id": str(user["_id"]),
+        "expires_at": new_refresh_token_expires,
+        "created_at": datetime.utcnow(),
+        "revoked": False
+    }
+    await refresh_tokens_collection.insert_one(new_refresh_token_data)
+    
+    logger.info(f"Usuario {user['username']} ha renovado su token de acceso.")
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+        "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    }
 
 # --- Endpoint de prueba para verificar autenticación y obtener datos del usuario actual ---
 @router.get("/me", response_model=UserResponse, operation_id="auth_get_current_user")

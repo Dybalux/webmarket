@@ -47,6 +47,26 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
+def create_refresh_token() -> str:
+    """
+    Crea un refresh token aleatorio y seguro.
+    Este token se almacenará hasheado en la base de datos.
+    """
+    import secrets
+    return secrets.token_urlsafe(32)
+
+def hash_token(token: str) -> str:
+    """
+    Hashea un token para almacenamiento seguro en la base de datos.
+    """
+    return pwd_context.hash(token)
+
+def verify_refresh_token(plain_token: str, hashed_token: str) -> bool:
+    """
+    Verifica si un refresh token coincide con su versión hasheada.
+    """
+    return pwd_context.verify(plain_token, hashed_token)
+
 def decode_access_token(token: str) -> TokenData:
     """
     Decodifica y valida un token JWT.

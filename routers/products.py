@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status , Query, Response
 from typing import List, Optional
 from bson import ObjectId
 
-from models import Product, ProductCategory, UserRole, TokenData
+from models import Product, ProductCategory, UserRole, TokenData, PaginationMeta
 from database import get_database, get_collection
 from security import get_current_admin_user # Importamos la dependencia para admins
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -47,18 +48,18 @@ async def create_product(
     else:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Producto creado pero no se pudo recuperar.")
     
-@router.get("/", response_model=List[Product])
+@router.get("/")
 async def read_products(
     products_collection = Depends(get_products_collection),
     category: Optional[ProductCategory] = Query(None, description="Filtrar por categoría de producto"),
     min_price: Optional[float] = Query(None, ge=0, description="Precio mínimo del producto"),
     max_price: Optional[float] = Query(None, ge=0, description="Precio máximo del producto"),
     search: Optional[str] = Query(None, min_length=2, description="Buscar por nombre o descripción del producto"),
-    skip: int = Query(0, ge=0, description="Número de ítems a saltar para paginación"),
-    limit: int = Query(10, ge=1, le=100, description="Número máximo de ítems a devolver")
+    page: int = Query(1, ge=1, description="Número de página (1-indexed)"),
+    page_size: int = Query(20, ge=1, le=100, description="Tamaño de página")
 ):
     """
-    Obtiene una lista de productos con opciones de filtrado, búsqueda y paginación.
+    Obtiene una lista paginada de productos con opciones de filtrado y búsqueda.
     Accesible para cualquier usuario (no requiere autenticación).
     """
     query = {}
@@ -78,11 +79,33 @@ async def read_products(
             {"description": {"$regex": search, "$options": "i"}}
         ]
 
-    products_cursor = products_collection.find(query).skip(skip).limit(limit)
+    # Contar total de items
+    total = await products_collection.count_documents(query)
+    
+    # Calcular paginación
+    skip = (page - 1) * page_size
+    total_pages = math.ceil(total / page_size) if total > 0 else 0
+    
+    # Obtener productos paginados
+    products_cursor = products_collection.find(query).skip(skip).limit(page_size)
     products_list = []
     async for product_doc in products_cursor:
         products_list.append(Product(**product_doc))
-    return products_list
+    
+    # Construir metadatos de paginación
+    meta = PaginationMeta(
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        has_next=page < total_pages,
+        has_prev=page > 1
+    )
+    
+    return {
+        "items": products_list,
+        "meta": meta
+    }
 
 @router.get("/{product_id}", response_model=Product)
 async def read_product(

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # Refresh tokens duran 7 días por defecto
 
     # MongoDB
     DATABASE_URL: str

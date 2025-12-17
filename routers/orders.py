@@ -6,6 +6,7 @@ from datetime import datetime
 from models import Order, OrderCreate, OrderItem, OrderStatus, Product, Cart, TokenData
 from database import get_database, get_collection
 from security import get_current_active_user_id, get_current_verified_user, get_current_admin_user
+# from stock_helpers import validate_and_reserve_stock, update_stock_atomic  # Descomenta cuando uses MongoDB M10+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,10 @@ async def create_order(
     - Decrementa el stock.
     - Vacía el carrito.
     Requiere que el usuario haya verificado su mayoría de edad.
+    
+    NOTA: La versión con transacciones está comentada porque MongoDB Atlas M0 (gratuito)
+    no soporta transacciones. Para habilitar transacciones, actualiza a M10+ y descomenta
+    el código en la sección "VERSIÓN CON TRANSACCIONES" más abajo.
     """
     # 1. Obtener el carrito del usuario
     cart_db = await carts_collection.find_one({"user_id": user_id})
@@ -89,14 +94,11 @@ async def create_order(
     
     order_dict = new_order.model_dump(exclude={"_id"}, by_alias=False)
     result = await orders_collection.insert_one(order_dict)
-
-    
     
     if not result.inserted_id:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="No se pudo crear el pedido.")
 
     # 4. Decrementar el stock de los productos
-    # NOTA: En un sistema de producción real, esto debería ser una transacción atómica con la creación del pedido.
     for p in product_ids_to_update:
         await products_collection.update_one(
             {"_id": p["id"]},
@@ -113,6 +115,97 @@ async def create_order(
     
     created_order = await orders_collection.find_one({"_id": result.inserted_id})
     return Order(**created_order)
+
+    # ============================================================================
+    # VERSIÓN CON TRANSACCIONES (Requiere MongoDB M10+ o Replica Set)
+    # ============================================================================
+    # Descomenta este código cuando actualices a MongoDB Atlas M10+ o superior
+    # y comenta la versión simple de arriba
+    # ============================================================================
+    """
+    # 1. Obtener el carrito del usuario
+    cart_db = await carts_collection.find_one({"user_id": user_id})
+    if not cart_db or not cart_db.get("items"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tu carrito está vacío.")
+    
+    cart_db["_id"] = str(cart_db["_id"])
+    cart = Cart(**cart_db)
+    
+    # 2. Iniciar transacción de MongoDB para operaciones atómicas
+    from database import db as db_instance
+    client = db_instance.client
+    
+    async with await client.start_session() as session:
+        async with session.start_transaction():
+            try:
+                # 3. Validar y reservar stock de forma atómica
+                cart_items_dict = [{"product_id": item.product_id, "quantity": item.quantity} for item in cart.items]
+                validated_products = await validate_and_reserve_stock(
+                    session,
+                    products_collection,
+                    cart_items_dict
+                )
+                
+                # 4. Construir los items de la orden con precios actuales
+                order_items: List[OrderItem] = []
+                total_amount = 0.0
+                
+                for validated_product in validated_products:
+                    order_item = OrderItem(
+                        product_id=ObjectId(validated_product["product_id"]),
+                        name=validated_product["name"],
+                        quantity=validated_product["quantity"],
+                        price_at_purchase=validated_product["price"]
+                    )
+                    order_items.append(order_item)
+                    total_amount += order_item.price_at_purchase * order_item.quantity
+                
+                # 5. Crear el documento del pedido
+                new_order = Order(
+                    user_id=user_id,
+                    items=order_items,
+                    total_amount=total_amount,
+                    status=OrderStatus.PENDING,
+                    shipping_address=order_data.shipping_address
+                )
+                
+                order_dict = new_order.model_dump(exclude={"_id"}, by_alias=False)
+                result = await orders_collection.insert_one(order_dict, session=session)
+                
+                if not result.inserted_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="No se pudo crear el pedido."
+                    )
+                
+                # 6. Actualizar stock de forma atómica
+                await update_stock_atomic(session, products_collection, cart_items_dict)
+                
+                # 7. Vaciar el carrito del usuario
+                await carts_collection.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"items": []}},
+                    session=session
+                )
+                
+                # 8. Commit de la transacción (automático al salir del contexto)
+                logger.info(f"Pedido {result.inserted_id} creado exitosamente para el usuario {user_id} usando transacción.")
+                
+                # 9. Obtener y devolver el pedido creado
+                created_order = await orders_collection.find_one({"_id": result.inserted_id})
+                return Order(**created_order)
+                
+            except HTTPException:
+                # Re-lanzar excepciones HTTP (la transacción se revertirá automáticamente)
+                raise
+            except Exception as e:
+                # Cualquier otro error también revertirá la transacción
+                logger.error(f"Error al crear pedido: {e}", exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Error al procesar el pedido. Por favor, intenta nuevamente."
+                )
+    """
 
 
 @router.get("/me", response_model=List[Order])
