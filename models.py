@@ -132,6 +132,11 @@ class TokenData(BaseModel):
     roles: List[UserRole] = []
     age_verified: bool = False # Para pasar en el token la verificación de edad
 
+class AgeVerificationResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
 
 # Modelos para Carrito de Compras
 class CartItem(BaseModel):

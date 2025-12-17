@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta 
 from bson import ObjectId
 
-from models import TokenData, UserResponse
-from security import get_current_user_token_data # Para saber quién es el usuario
+from models import TokenData, UserResponse, Token, UserRole, AgeVerificationResponse
+from security import get_current_user_token_data, create_access_token # Para saber quién es el usuario
 from database import get_database, get_collection
 from config import settings
 import logging
@@ -20,7 +20,7 @@ MINIMUM_AGE = 18
 def get_users_collection(db=Depends(get_database)):
     return get_collection("users")
 
-@router.post("/verify-age", response_model=UserResponse, status_code=status.HTTP_200_OK)
+@router.post("/verify-age", response_model=AgeVerificationResponse, status_code=status.HTTP_200_OK)
 async def verify_age(
     current_user_token_data: TokenData = Depends(get_current_user_token_data),
     users_collection=Depends(get_users_collection)
@@ -28,6 +28,7 @@ async def verify_age(
     """
     Endpoint para verificar o re-verificar la mayoría de edad del usuario autenticado.
     Actualiza el estado 'age_verified' del usuario si cumple la edad mínima.
+    Retorna un nuevo token JWT con age_verified actualizado.
     """
 
     user_id = current_user_token_data.user_id
@@ -77,9 +78,30 @@ async def verify_age(
         # Recuperar el usuario actualizado para la respuesta
         updated_user_db = await users_collection.find_one({"_id": ObjectId(user_id)})
         
+        # Generar un nuevo token JWT con age_verified actualizado
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        
+        # Obtener roles del usuario
+        user_roles = [UserRole(role) for role in updated_user_db.get("role", [UserRole.CUSTOMER.value])] if isinstance(updated_user_db.get("role"), list) else [UserRole(updated_user_db.get("role", UserRole.CUSTOMER.value))]
+        
+        new_token = create_access_token(
+            data={
+                "sub": updated_user_db["username"],
+                "user_id": str(updated_user_db["_id"]),
+                "roles": [role.value for role in user_roles],
+                "age_verified": True  # Ahora el token refleja el estado actualizado
+            },
+            expires_delta=access_token_expires
+        )
+        
         # Convertir ObjectId a str para el UserResponse
         updated_user_db["_id"] = str(updated_user_db["_id"])
-        return UserResponse(**updated_user_db)
+        
+        return {
+            "access_token": new_token,
+            "token_type": "bearer",
+            "user": UserResponse(**updated_user_db)
+        }
     
 #Puedes añadir un endpoint para obtener la edad mínima si el frontend lo necesita
 
