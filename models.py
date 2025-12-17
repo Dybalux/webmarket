@@ -1,7 +1,7 @@
 from bson import ObjectId
 from pydantic import BaseModel, Field, EmailStr
 from pydantic_core import core_schema
-from typing import List, Optional
+from typing import List, Optional, Any
 from datetime import datetime
 from pydantic.json_schema import JsonSchemaValue
 import enum
@@ -170,7 +170,7 @@ class PaginationMeta(BaseModel):
 
 class PaginatedResponse(BaseModel):
     """Respuesta paginada genérica"""
-    items: List[any] = Field(..., description="Items de la página actual")
+    items: List[Any] = Field(..., description="Items de la página actual")
     meta: PaginationMeta = Field(..., description="Metadatos de paginación")
 
 
