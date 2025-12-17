@@ -62,7 +62,12 @@ origins = [
 
 # En producción, NUNCA usar "*"
 if settings.ENV.lower() == "development":
+    # En desarrollo, permitir todos los orígenes
     origins.append("*")
+else:
+    # En producción, solo permitir orígenes específicos
+    # Agregar aquí cualquier dominio adicional de producción
+    pass
 
 app.add_middleware(
     CORSMiddleware,
