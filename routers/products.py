@@ -55,18 +55,21 @@ async def read_products(
     min_price: Optional[float] = Query(None, ge=0, description="Precio mínimo del producto"),
     max_price: Optional[float] = Query(None, ge=0, description="Precio máximo del producto"),
     search: Optional[str] = Query(None, min_length=2, description="Buscar por nombre o descripción del producto"),
+    include_out_of_stock: bool = Query(False, description="Incluir productos sin stock (para administradores)"),
     page: int = Query(1, ge=1, description="Número de página (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Tamaño de página")
 ):
     """
     Obtiene una lista paginada de productos con opciones de filtrado y búsqueda.
-    Solo muestra productos con stock disponible (stock > 0).
+    Por defecto, solo muestra productos con stock disponible (stock > 0).
+    Usar include_out_of_stock=true para ver todos los productos (útil para administradores).
     Accesible para cualquier usuario (no requiere autenticación).
     """
     query = {}
     
-    # Filtrar solo productos con stock disponible
-    query["stock"] = {"$gt": 0}
+    # Filtrar solo productos con stock disponible (a menos que se solicite lo contrario)
+    if not include_out_of_stock:
+        query["stock"] = {"$gt": 0}
     
     if category:
         query["category"] = category.value
