@@ -76,34 +76,44 @@ async def add_to_cart(
     Añade un producto al carrito de compras del usuario o actualiza su cantidad.
     Requiere que el usuario haya verificado su mayoría de edad.
     """
-    # 1. Verificar que el producto exista y tenga stock suficiente
+    # 1. Verificar que el producto exista
     product_db = await products_collection.find_one({"_id": ObjectId(cart_item_data.product_id)})
     if not product_db:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado.")
     
-    if product_db.get("stock", 0) < cart_item_data.quantity:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Stock insuficiente para el producto '{product_db['name']}'. Solo quedan {product_db.get('stock', 0)} unidades."
-        )
-
     # 2. Obtener o crear el carrito del usuario
     cart = await get_user_cart(carts_collection, user_id)
 
-    # 3. Añadir/actualizar el producto en el carrito
+    # 3. Calcular la cantidad total que tendría el producto en el carrito
+    existing_quantity = 0
+    for item in cart.items:
+        if item.product_id == cart_item_data.product_id:
+            existing_quantity = item.quantity
+            break
+    
+    total_quantity = existing_quantity + cart_item_data.quantity
+    
+    # 4. Verificar que el stock sea suficiente para la cantidad TOTAL
+    if product_db.get("stock", 0) < total_quantity:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Stock insuficiente para el producto '{product_db['name']}'. Solo quedan {product_db.get('stock', 0)} unidades y ya tienes {existing_quantity} en el carrito."
+        )
+
+    # 5. Añadir/actualizar el producto en el carrito
     found = False
     for item in cart.items:
         if item.product_id == cart_item_data.product_id:
-            item.quantity += cart_item_data.quantity # Sumar la cantidad
+            item.quantity = total_quantity  # Actualizar a la cantidad total
             found = True
             break
     
     if not found:
         cart.items.append(cart_item_data)
     
-    # 4. Guardar el carrito actualizado
+    # 6. Guardar el carrito actualizado
     await save_cart(carts_collection, cart)
-    logger.info(f"Usuario {user_id} añadió/actualizó producto {cart_item_data.product_id} en el carrito. Cantidad: {cart_item_data.quantity}")
+    logger.info(f"Usuario {user_id} añadió/actualizó producto {cart_item_data.product_id} en el carrito. Cantidad total: {total_quantity}")
     return cart
 
 @router.put("/update", response_model=Cart)
