@@ -60,9 +60,14 @@ async def read_products(
 ):
     """
     Obtiene una lista paginada de productos con opciones de filtrado y búsqueda.
+    Solo muestra productos con stock disponible (stock > 0).
     Accesible para cualquier usuario (no requiere autenticación).
     """
     query = {}
+    
+    # Filtrar solo productos con stock disponible
+    query["stock"] = {"$gt": 0}
+    
     if category:
         query["category"] = category.value
     if min_price is not None:
