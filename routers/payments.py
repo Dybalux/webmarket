@@ -63,7 +63,8 @@ async def create_payment_preference(
             "failure": f"{settings.FRONTEND_URL}/payment/failure?order_id={order_id}",
             "pending": f"{settings.FRONTEND_URL}/payment/pending?order_id={order_id}"
         },
-        "notification_url": f"{settings.WEBHOOK_BASE_URL}/payments/webhook", # URL para el webhook
+        # NOTA: notification_url se configura desde el panel de Mercado Pago
+        # porque en la creación de preferencia está dando error de formato
         "auto_return": "approved",
     }
     
