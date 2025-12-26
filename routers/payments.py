@@ -130,6 +130,9 @@ async def handle_mercadopago_webhook(
     query_params = request.query_params
     logger.info(f"Webhook de Mercado Pago recibido: {query_params}")
     
+    # Log de headers para debugging
+    logger.info(f"Headers recibidos: x-signature={request.headers.get('x-signature')}, x-request-id={request.headers.get('x-request-id')}")
+    
     # 1. VALIDACIÓN DE FIRMA (Seguridad)
     # Verificar que el webhook realmente viene de Mercado Pago
     x_signature = request.headers.get("x-signature")
