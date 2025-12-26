@@ -69,7 +69,27 @@ async def create_payment_preference(
     
     try:
         preference_response = sdk.preference().create(preference_data)
+        
+        # Log completo de la respuesta para debugging
+        logger.info(f"Respuesta completa de Mercado Pago: {preference_response}")
+        
+        # Verificar si la respuesta tiene el formato esperado
+        if "response" not in preference_response:
+            logger.error(f"Respuesta de MP sin 'response': {preference_response}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+                detail=f"Respuesta inesperada de Mercado Pago: {preference_response.get('message', 'Error desconocido')}"
+            )
+        
         preference = preference_response["response"]
+        
+        # Verificar que tenga los campos necesarios
+        if "id" not in preference or "init_point" not in preference:
+            logger.error(f"Preferencia sin campos requeridos: {preference}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="La preferencia de Mercado Pago no contiene los campos necesarios"
+            )
         
         # Guardar el ID de preferencia en el pedido
         await orders_collection.update_one(
@@ -79,9 +99,14 @@ async def create_payment_preference(
         
         logger.info(f"Preferencia de pago {preference['id']} creada para el pedido {order_id}.")
         return {"preference_id": preference["id"], "init_point": preference["init_point"]}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error al crear preferencia de Mercado Pago: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al comunicarse con Mercado Pago.")
+        logger.error(f"Error al crear preferencia de Mercado Pago: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Error al comunicarse con Mercado Pago: {str(e)}"
+        )
 
 @router.post("/webhook")
 async def handle_mercadopago_webhook(
