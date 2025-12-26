@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import Response
 from bson import ObjectId
 import mercadopago
 import logging
@@ -58,9 +59,9 @@ async def create_payment_preference(
         "items": items_for_mp,
         "external_reference": order_id, # MUY IMPORTANTE: vincula el pago a nuestro pedido
         "back_urls": {
-            "success": f"{settings.WEBHOOK_BASE_URL}/payment-success", # URL a la que volverá el usuario
-            "failure": f"{settings.WEBHOOK_BASE_URL}/payment-failure",
-            "pending": f"{settings.WEBHOOK_BASE_URL}/payment-pending"
+            "success": f"{settings.FRONTEND_URL}/payment/success?order_id={order_id}", # URL del frontend
+            "failure": f"{settings.FRONTEND_URL}/payment/failure?order_id={order_id}",
+            "pending": f"{settings.FRONTEND_URL}/payment/pending?order_id={order_id}"
         },
         "notification_url": f"{settings.WEBHOOK_BASE_URL}/payments/webhook", # URL para el webhook
         "auto_return": "approved",

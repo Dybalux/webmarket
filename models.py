@@ -222,6 +222,7 @@ class Order(BaseModel):
     status: OrderStatus = OrderStatus.PENDING
     shipping_address: Address
     payment_id: Optional[str] = None # ID de la transacción de pago
+    payment_preference_id: Optional[str] = None # ID de la preferencia de Mercado Pago
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     

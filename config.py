@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # URL base para tus webhooks (importante para desarrollo y producción)
     # En desarrollo usaremos ngrok, en producción será tu dominio
     WEBHOOK_BASE_URL: str = "http://localhost:8000"
+    
+    # URL del frontend para redirecciones después del pago
+    FRONTEND_URL: str = "http://localhost:3000"
 
     # Entorno
     ENV: str = "development"
