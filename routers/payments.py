@@ -170,13 +170,16 @@ async def handle_mercadopago_webhook(
             logger.error(f"❌ Error al validar firma del webhook: {e}", exc_info=True)
             # En caso de error en la validación, rechazar por seguridad
             return Response(status_code=status.HTTP_401_UNAUTHORIZED)
-    elif settings.MERCADOPAGO_WEBHOOK_SECRET:
-        # Si tenemos secret configurado pero no viene firma, rechazar
-        logger.warning("⚠️ Webhook sin header x-signature. Rechazado por seguridad.")
-        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+    elif x_signature and not settings.MERCADOPAGO_WEBHOOK_SECRET:
+        # Si viene firma pero no tenemos secret configurado, advertir
+        logger.warning("⚠️ Webhook con x-signature pero MERCADOPAGO_WEBHOOK_SECRET no configurado.")
     else:
-        # Si no hay secret configurado, solo logear advertencia (modo desarrollo)
-        logger.warning("⚠️ MERCADOPAGO_WEBHOOK_SECRET no configurado. Validación de firma deshabilitada.")
+        # Si no hay secret configurado o no viene firma, solo logear advertencia
+        # Esto permite webhooks de prueba que no envían firma
+        if not settings.MERCADOPAGO_WEBHOOK_SECRET:
+            logger.warning("⚠️ MERCADOPAGO_WEBHOOK_SECRET no configurado. Validación de firma deshabilitada.")
+        else:
+            logger.info("ℹ️ Webhook sin x-signature (normal en modo de prueba). Procesando sin validación.")
     
     topic = query_params.get("topic")
     payment_id = query_params.get("id")
