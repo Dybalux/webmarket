@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # Tu Access Token privado de Mercado Pago (lo leerá del .env)
     MERCADOPAGO_ACCESS_TOKEN: Optional[str] = None
     MERCADOPAGO_PUBLIC_KEY: Optional[str] = None
+    MERCADOPAGO_WEBHOOK_SECRET: Optional[str] = None  # Para validar firma de webhooks
     
     # URL base para tus webhooks (importante para desarrollo y producción)
     # En desarrollo usaremos ngrok, en producción será tu dominio

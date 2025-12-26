@@ -3,6 +3,8 @@ from fastapi.responses import Response
 from bson import ObjectId
 import mercadopago
 import logging
+import hmac
+import hashlib
 
 from models import Order, OrderStatus, TokenData
 from database import get_database, get_collection
@@ -120,12 +122,61 @@ async def handle_mercadopago_webhook(
     Este endpoint debe ser público.
     
     Mejoras implementadas:
+    - Validación de firma criptográfica para seguridad
     - Validación de idempotencia para evitar procesar webhooks duplicados
     - Manejo de estado "in_process" para pagos pendientes
     - Logging mejorado para debugging
     """
     query_params = request.query_params
     logger.info(f"Webhook de Mercado Pago recibido: {query_params}")
+    
+    # 1. VALIDACIÓN DE FIRMA (Seguridad)
+    # Verificar que el webhook realmente viene de Mercado Pago
+    x_signature = request.headers.get("x-signature")
+    x_request_id = request.headers.get("x-request-id")
+    
+    if x_signature and settings.MERCADOPAGO_WEBHOOK_SECRET:
+        try:
+            # Extraer timestamp y hash de x-signature
+            # Formato: "ts=123456,v1=hash_value"
+            parts = {}
+            for item in x_signature.split(","):
+                key, value = item.split("=", 1)
+                parts[key.strip()] = value.strip()
+            
+            ts = parts.get("ts")
+            received_hash = parts.get("v1")
+            
+            if not ts or not received_hash:
+                logger.warning("⚠️ Webhook sin firma válida. Faltan ts o v1.")
+                return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+            
+            # Construir el mensaje a validar según documentación de MP
+            data_id = query_params.get("id", "")
+            message = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
+            
+            # Calcular el hash esperado usando HMAC-SHA256
+            secret = settings.MERCADOPAGO_WEBHOOK_SECRET.encode()
+            expected_hash = hmac.new(secret, message.encode(), hashlib.sha256).hexdigest()
+            
+            # Comparar hashes de forma segura
+            if not hmac.compare_digest(received_hash, expected_hash):
+                logger.warning(f"⚠️ Webhook con firma inválida. Posible ataque. ID: {data_id}")
+                return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+            
+            logger.info(f"✅ Firma del webhook validada correctamente. ID: {data_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error al validar firma del webhook: {e}", exc_info=True)
+            # En caso de error en la validación, rechazar por seguridad
+            return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+    elif settings.MERCADOPAGO_WEBHOOK_SECRET:
+        # Si tenemos secret configurado pero no viene firma, rechazar
+        logger.warning("⚠️ Webhook sin header x-signature. Rechazado por seguridad.")
+        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+    else:
+        # Si no hay secret configurado, solo logear advertencia (modo desarrollo)
+        logger.warning("⚠️ MERCADOPAGO_WEBHOOK_SECRET no configurado. Validación de firma deshabilitada.")
     
     topic = query_params.get("topic")
     payment_id = query_params.get("id")
