@@ -72,6 +72,10 @@ class PaymentStatus(str, enum.Enum):
     REFUNDED = "Reembolsado"
     CANCELED = "Cancelado"
 
+class PaymentMethod(str, enum.Enum):
+    MERCADO_PAGO = "Mercado Pago"
+    TRANSFERENCIA = "Transferencia Bancaria"
+
 # --- Modelos de Datos Principales ---
 
 # Modelo para un Producto (Bebida)
@@ -221,6 +225,7 @@ class Order(BaseModel):
     total_amount: float = Field(..., ge=0)
     status: OrderStatus = OrderStatus.PENDING
     shipping_address: Address
+    payment_method: Optional[PaymentMethod] = None  # Método de pago seleccionado
     payment_id: Optional[str] = None # ID de la transacción de pago
     payment_preference_id: Optional[str] = None # ID de la preferencia de Mercado Pago
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -263,3 +268,22 @@ class InventoryAlert(BaseModel):
     
     class Config:
         populate_by_name = True
+
+# Modelos para Configuración de Pagos
+class PaymentSettings(BaseModel):
+    """Configuración de métodos de pago (editable por admin)"""
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    transfer_alias: str = Field(..., description="Alias bancario para transferencias")
+    transfer_whatsapp: str = Field(..., description="Número de WhatsApp para comprobantes")
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_by: Optional[str] = None  # user_id del admin que actualizó
+    
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
+        arbitrary_types_allowed = True
+
+class PaymentSettingsUpdate(BaseModel):
+    """Modelo para actualizar configuración de pagos"""
+    transfer_alias: str = Field(..., min_length=3, max_length=100, description="Alias bancario")
+    transfer_whatsapp: str = Field(..., pattern=r"^\+?[0-9]{10,15}$", description="Número de WhatsApp (10-15 dígitos)")

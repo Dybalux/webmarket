@@ -3,7 +3,7 @@ from typing import List
 from bson import ObjectId
 from datetime import datetime
 
-from models import Order, OrderCreate, OrderItem, OrderStatus, Product, Cart, TokenData
+from models import Order, OrderCreate, OrderItem, OrderStatus, Product, Cart, TokenData, PaymentMethod
 from database import get_database, get_collection
 from security import get_current_active_user_id, get_current_verified_user, get_current_admin_user
 # from stock_helpers import validate_and_reserve_stock, update_stock_atomic  # Descomenta cuando uses MongoDB M10+
@@ -28,6 +28,7 @@ def get_carts_collection(db=Depends(get_database)):
 @router.post("/", response_model=Order, status_code=status.HTTP_201_CREATED)
 async def create_order(
     order_data: OrderCreate,
+    payment_method: PaymentMethod = PaymentMethod.MERCADO_PAGO,  # Método de pago por defecto
     user_id: str = Depends(get_current_active_user_id),
     carts_collection = Depends(get_carts_collection),
     products_collection = Depends(get_products_collection),
@@ -40,6 +41,7 @@ async def create_order(
     - Valida el stock de los productos.
     - Decrementa el stock.
     - Vacía el carrito.
+    - Permite seleccionar el método de pago (Mercado Pago o Transferencia).
     Requiere que el usuario haya verificado su mayoría de edad.
     
     NOTA: La versión con transacciones está comentada porque MongoDB Atlas M0 (gratuito)
@@ -89,7 +91,8 @@ async def create_order(
         items=order_items,
         total_amount=total_amount,
         status=OrderStatus.PENDING,
-        shipping_address=order_data.shipping_address
+        shipping_address=order_data.shipping_address,
+        payment_method=payment_method  # Guardar el método de pago seleccionado
     )
     
     order_dict = new_order.model_dump(exclude={"_id"}, by_alias=False)
@@ -216,6 +219,54 @@ async def get_my_orders(
     """Obtiene el historial de pedidos del usuario autenticado."""
     orders_cursor = orders_collection.find({"user_id": user_id}).sort("created_at", -1)
     return [Order(**order) async for order in orders_cursor]
+
+
+@router.post("/{order_id}/select-payment-method", response_model=Order)
+async def select_payment_method(
+    order_id: str,
+    payment_method: PaymentMethod,
+    user_id: str = Depends(get_current_active_user_id),
+    orders_collection = Depends(get_orders_collection)
+):
+    """
+    Permite seleccionar o cambiar el método de pago para un pedido existente.
+    Solo se puede cambiar si el pedido está en estado PENDING.
+    """
+    # 1. Validar el ID
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de pedido inválido.")
+    
+    # 2. Obtener el pedido
+    order = await orders_collection.find_one({"_id": ObjectId(order_id)})
+    
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado.")
+    
+    # 3. Verificar que el pedido pertenece al usuario
+    if order["user_id"] != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Este pedido no te pertenece.")
+    
+    # 4. Verificar que el pedido está en estado PENDING
+    if order["status"] != OrderStatus.PENDING.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede cambiar el método de pago. El pedido está en estado '{order['status']}'."
+        )
+    
+    # 5. Actualizar el método de pago
+    await orders_collection.update_one(
+        {"_id": ObjectId(order_id)},
+        {"$set": {
+            "payment_method": payment_method.value,
+            "updated_at": datetime.utcnow()
+        }}
+    )
+    
+    logger.info(f"Usuario {user_id} seleccionó método de pago '{payment_method.value}' para el pedido {order_id}.")
+    
+    # 6. Devolver el pedido actualizado
+    updated_order = await orders_collection.find_one({"_id": ObjectId(order_id)})
+    return Order(**updated_order)
 
 
 @router.get("/{order_id}", response_model=Order)
