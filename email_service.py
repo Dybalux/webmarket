@@ -2,6 +2,7 @@
 Servicio simple de email para notificar a admins sobre nuevas órdenes.
 """
 import smtplib
+import socket
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from config import settings
@@ -92,7 +93,26 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
         msg.attach(part2)
         
         # Enviar email a todos los admins
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+        # Enviar email a todos los admins
+        # Implementación robusta para entornos Docker/Railway con problemas de IPv6
+        try:
+            # Intentar conexión estándar
+            server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20)
+        except OSError as e:
+            # [Errno 101] Network unreachable suele ocurrir cuando intenta usar IPv6 en un entorno sin soporte
+            if e.errno == 101:
+                logger.warning(f"⚠️ Error de red (Errno 101) con {settings.SMTP_HOST}. Reintentando forzando IPv4...")
+                # Resolver DNS manualmente a IPv4
+                ip_address = socket.gethostbyname(settings.SMTP_HOST)
+                # Conectar directamente a la IP
+                server = smtplib.SMTP(ip_address, settings.SMTP_PORT, timeout=20)
+                # HACK CRÍTICO: Restaurar el hostname original para que starttls() valido el certificado correctamente
+                server._host = settings.SMTP_HOST
+            else:
+                raise e
+
+        # Usar el servidor conectado
+        with server:
             server.starttls()
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.send_message(msg)
