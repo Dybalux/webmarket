@@ -6,6 +6,7 @@ from datetime import datetime
 from models import Order, OrderCreate, OrderItem, OrderStatus, Product, Cart, TokenData, PaymentMethod
 from database import get_database, get_collection
 from security import get_current_active_user_id, get_current_verified_user, get_current_admin_user
+from email_service import send_new_order_notification
 # from stock_helpers import validate_and_reserve_stock, update_stock_atomic  # Descomenta cuando uses MongoDB M10+
 import logging
 
@@ -117,6 +118,24 @@ async def create_order(
     logger.info(f"Pedido {result.inserted_id} creado para el usuario {user_id}.")
     
     created_order = await orders_collection.find_one({"_id": result.inserted_id})
+    
+    # 6. Enviar notificación por email al admin
+    try:
+        # Obtener email del usuario
+        users_collection = get_collection("users")
+        user = await users_collection.find_one({"_id": ObjectId(user_id)})
+        user_email = user.get("email", "email-no-disponible") if user else "email-no-disponible"
+        
+        await send_new_order_notification(
+            order_id=str(result.inserted_id),
+            user_email=user_email,
+            total_amount=total_amount,
+            payment_method=payment_method.value
+        )
+    except Exception as e:
+        # No romper si falla el email
+        logger.error(f"Error al enviar notificación de email: {e}")
+    
     return Order(**created_order)
 
     # ============================================================================

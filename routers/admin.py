@@ -245,3 +245,72 @@ async def get_admin_orders(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al obtener la lista de pedidos."
         )
+
+
+# --- Endpoint de Gestión de Roles ---
+
+@router.put("/users/{user_id}/role", response_model=UserResponse, tags=["Admin"])
+async def update_user_role(
+    user_id: str,
+    new_role: UserRole,
+    users_collection = Depends(get_users_collection),
+    current_admin_user: TokenData = Depends(get_current_admin_user)
+):
+    """
+    [Admin] Cambia el rol de un usuario (admin o customer).
+    Permite promover usuarios a admin o degradar admins a customer.
+    Requiere permisos de administrador.
+    """
+    try:
+        # 1. Validar el ID
+        if not ObjectId.is_valid(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="ID de usuario inválido."
+            )
+        
+        # 2. Obtener el usuario
+        user = await users_collection.find_one({"_id": ObjectId(user_id)})
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Usuario no encontrado."
+            )
+        
+        # 3. Prevenir que el admin se quite sus propios permisos
+        if str(user["_id"]) == current_admin_user.user_id and new_role == UserRole.CUSTOMER:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puedes quitarte tus propios permisos de administrador."
+            )
+        
+        current_role = user.get("role", UserRole.CUSTOMER.value)
+        
+        # 4. Actualizar el rol
+        await users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"role": new_role.value}}
+        )
+        
+        # 5. Log de la acción
+        action = "promovido a admin" if new_role == UserRole.ADMIN else "degradado a customer"
+        logger.info(
+            f"Admin {current_admin_user.username} {action} al usuario {user['username']} "
+            f"(de {current_role} a {new_role.value})"
+        )
+        
+        # 6. Devolver el usuario actualizado
+        updated_user = await users_collection.find_one({"_id": ObjectId(user_id)})
+        updated_user.pop("hashed_password", None)  # No devolver la contraseña
+        
+        return UserResponse(**updated_user)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error al actualizar rol de usuario: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al actualizar el rol del usuario."
+        )
