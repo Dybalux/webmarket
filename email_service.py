@@ -92,30 +92,45 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
         msg.attach(part1)
         msg.attach(part2)
         
-        # Enviar email a todos los admins
-        # Enviar email a todos los admins
-        # Implementación robusta para entornos Docker/Railway con problemas de IPv6
-        try:
-            # Intentar conexión estándar
-            server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20)
-        except OSError as e:
-            # [Errno 101] Network unreachable suele ocurrir cuando intenta usar IPv6 en un entorno sin soporte
-            if e.errno == 101:
-                logger.warning(f"⚠️ Error de red (Errno 101) con {settings.SMTP_HOST}. Reintentando forzando IPv4...")
-                # Resolver DNS manualmente a IPv4
-                ip_address = socket.gethostbyname(settings.SMTP_HOST)
-                # Conectar directamente a la IP
-                server = smtplib.SMTP(ip_address, settings.SMTP_PORT, timeout=20)
-                # HACK CRÍTICO: Restaurar el hostname original para que starttls() valido el certificado correctamente
-                server._host = settings.SMTP_HOST
-            else:
-                raise e
+        # Helper interno para conectar de forma robusta
+        def connect_smtp(host, port):
+            use_ssl = (port == 465)
+            connection_class = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+            timeout = 30  # Timeout aumentado
+            
+            try:
+                # Intento 1: Conexión estándar
+                server = connection_class(host, port, timeout=timeout)
+            except OSError as e:
+                # Fallback IPv4 para errores de red (101 Network unreachable, etc)
+                if e.errno == 101 or "unreachable" in str(e).lower(): 
+                    logger.warning(f"⚠️ Error de red con {host}. Reintentando con IPv4...")
+                    try:
+                        ip_address = socket.gethostbyname(host)
+                        server = connection_class(ip_address, port, timeout=timeout)
+                        # HACK: Restaurar hostname para validación SSL/TLS
+                        server._host = host 
+                    except Exception as fallback_error:
+                         # Si falla el fallback, lanzar el error original para no ocultarlo
+                         raise e
+                else:
+                    raise e
+            return server
 
-        # Usar el servidor conectado
-        with server:
-            server.starttls()
-            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.send_message(msg)
+        try:
+            server = connect_smtp(settings.SMTP_HOST, settings.SMTP_PORT)
+            
+            with server:
+                # Si NO es SSL (puerto 465), necesitamos STARTTLS
+                if settings.SMTP_PORT != 465:
+                    server.starttls()
+                
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
+                
+        except Exception as e:
+            # Re-lanzar para que lo atrape el bloque except exterior
+            raise e
         
         logger.info(f"✅ Email enviado a {len(admin_emails)} admin(s): Nueva orden #{order_id}")
         
