@@ -119,7 +119,7 @@ async def create_order(
     
     created_order = await orders_collection.find_one({"_id": result.inserted_id})
     
-    # 6. Enviar notificación por email al admin
+    # 6. Enviar notificación por email al admin usando SendGrid
     try:
         # Obtener email del usuario
         users_collection = get_collection("users")

@@ -29,12 +29,10 @@ class Settings(BaseSettings):
     # URL del frontend para redirecciones después del pago
     FRONTEND_URL: str = "http://localhost:3000"
 
-    # --- CONFIGURACIÓN DE EMAIL ---
-    # Configuración SMTP para enviar notificaciones a admins
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USER: Optional[str] = None
-    SMTP_PASSWORD: Optional[str] = None
+    # --- CONFIGURACIÓN DE EMAIL (SendGrid) ---
+    # SendGrid API para enviar notificaciones a admins
+    SENDGRID_API_KEY: Optional[str] = None
+    SENDGRID_FROM_EMAIL: Optional[str] = None  # Email verificado en SendGrid
     EMAIL_ENABLED: bool = False  # Activar/desactivar emails
 
     # Entorno

@@ -1,10 +1,8 @@
 """
-Servicio simple de email para notificar a admins sobre nuevas órdenes.
+Servicio de email usando SendGrid para notificar a admins sobre nuevas órdenes.
 """
-import smtplib
-import socket
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail, Email, To, Content
 from config import settings
 import logging
 
@@ -13,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 async def send_new_order_notification(order_id: str, user_email: str, total_amount: float, payment_method: str):
     """
-    Envía un email a TODOS los admins notificando sobre una nueva orden.
+    Envía un email a TODOS los admins notificando sobre una nueva orden usando SendGrid.
     
     Args:
         order_id: ID de la orden creada
@@ -26,9 +24,13 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
         logger.info(f"📧 Email deshabilitado. Nueva orden #{order_id} - ${total_amount} - {payment_method}")
         return
     
-    # Validar configuración SMTP
-    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-        logger.warning("⚠️ Configuración SMTP incompleta. No se puede enviar notificación.")
+    # Validar configuración de SendGrid
+    if not settings.SENDGRID_API_KEY:
+        logger.warning("⚠️ SENDGRID_API_KEY no configurada. No se puede enviar notificación.")
+        return
+    
+    if not settings.SENDGRID_FROM_EMAIL:
+        logger.warning("⚠️ SENDGRID_FROM_EMAIL no configurado. No se puede enviar notificación.")
         return
     
     try:
@@ -49,90 +51,69 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
         
         logger.info(f"📧 Enviando notificación a {len(admin_emails)} admin(s): {', '.join(admin_emails)}")
         
-        # Crear mensaje
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = f'🛒 Nueva Orden #{order_id} - {payment_method}'
-        msg['From'] = settings.SMTP_USER
-        msg['To'] = ', '.join(admin_emails)  # Múltiples destinatarios
-        
-        # Contenido HTML
-        html = f"""
+        # Crear el contenido HTML del email
+        html_content = f"""
         <html>
-            <body style="font-family: Arial, sans-serif;">
-                <h2 style="color: #4CAF50;">🛒 Nueva Orden Recibida</h2>
-                <div style="background: #f5f5f5; padding: 20px; border-radius: 5px;">
-                    <p><strong>Orden:</strong> #{order_id}</p>
-                    <p><strong>Cliente:</strong> {user_email}</p>
-                    <p><strong>Total:</strong> ${total_amount:,.2f}</p>
-                    <p><strong>Método de Pago:</strong> {payment_method}</p>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
+                    <h1 style="color: white; margin: 0;">🛒 Nueva Orden Recibida</h1>
                 </div>
-                <p style="margin-top: 20px;">
-                    {'⚠️ <strong>Requiere confirmación manual de pago por transferencia</strong>' if payment_method == 'Transferencia Bancaria' else '✅ Pago procesado automáticamente por Mercado Pago'}
-                </p>
-                <hr>
-                <p style="color: #666; font-size: 12px;">EscabiAPI - Sistema de Notificaciones</p>
+                
+                <div style="padding: 30px; background: #f9f9f9;">
+                    <div style="background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <h2 style="color: #333; margin-top: 0;">Detalles de la Orden</h2>
+                        
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <tr>
+                                <td style="padding: 12px 0; border-bottom: 1px solid #eee;"><strong>Orden:</strong></td>
+                                <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right;">#{order_id}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px 0; border-bottom: 1px solid #eee;"><strong>Cliente:</strong></td>
+                                <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right;">{user_email}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px 0; border-bottom: 1px solid #eee;"><strong>Total:</strong></td>
+                                <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right; color: #4CAF50; font-size: 18px; font-weight: bold;">${total_amount:,.2f}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px 0;"><strong>Método de Pago:</strong></td>
+                                <td style="padding: 12px 0; text-align: right;">{payment_method}</td>
+                            </tr>
+                        </table>
+                        
+                        <div style="margin-top: 25px; padding: 15px; background: {'#fff3cd' if payment_method == 'Transferencia Bancaria' else '#d4edda'}; border-radius: 5px; border-left: 4px solid {'#ffc107' if payment_method == 'Transferencia Bancaria' else '#28a745'};">
+                            <p style="margin: 0; color: #333;">
+                                {'⚠️ <strong>Requiere confirmación manual de pago por transferencia</strong>' if payment_method == 'Transferencia Bancaria' else '✅ <strong>Pago procesado automáticamente por Mercado Pago</strong>'}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="padding: 20px; text-align: center; color: #666; font-size: 12px;">
+                    <p>EscabiAPI - Sistema de Notificaciones</p>
+                    <p style="margin: 5px 0;">Este es un email automático, por favor no responder.</p>
+                </div>
             </body>
         </html>
         """
         
-        # Contenido texto plano (fallback)
-        text = f"""
-        Nueva Orden Recibida
+        # Crear el mensaje de SendGrid
+        message = Mail(
+            from_email=Email(settings.SENDGRID_FROM_EMAIL, "EscabiAPI"),
+            to_emails=[To(email) for email in admin_emails],
+            subject=f'🛒 Nueva Orden #{order_id} - {payment_method}',
+            html_content=Content("text/html", html_content)
+        )
         
-        Orden: #{order_id}
-        Cliente: {user_email}
-        Total: ${total_amount:,.2f}
-        Método de Pago: {payment_method}
+        # Enviar el email usando SendGrid
+        sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
+        response = sg.send(message)
         
-        {'Requiere confirmación manual de pago' if payment_method == 'Transferencia Bancaria' else 'Pago procesado automáticamente'}
-        """
-        
-        part1 = MIMEText(text, 'plain')
-        part2 = MIMEText(html, 'html')
-        msg.attach(part1)
-        msg.attach(part2)
-        
-        # Helper interno para conectar de forma robusta
-        def connect_smtp(host, port):
-            use_ssl = (port == 465)
-            connection_class = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-            timeout = 30  # Timeout aumentado
-            
-            try:
-                # Intento 1: Conexión estándar
-                server = connection_class(host, port, timeout=timeout)
-            except OSError as e:
-                # Fallback IPv4 para errores de red (101 Network unreachable, etc)
-                if e.errno == 101 or "unreachable" in str(e).lower(): 
-                    logger.warning(f"⚠️ Error de red con {host}. Reintentando con IPv4...")
-                    try:
-                        ip_address = socket.gethostbyname(host)
-                        server = connection_class(ip_address, port, timeout=timeout)
-                        # HACK: Restaurar hostname para validación SSL/TLS
-                        server._host = host 
-                    except Exception as fallback_error:
-                         # Si falla el fallback, lanzar el error original para no ocultarlo
-                         raise e
-                else:
-                    raise e
-            return server
-
-        try:
-            server = connect_smtp(settings.SMTP_HOST, settings.SMTP_PORT)
-            
-            with server:
-                # Si NO es SSL (puerto 465), necesitamos STARTTLS
-                if settings.SMTP_PORT != 465:
-                    server.starttls()
-                
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
-                
-        except Exception as e:
-            # Re-lanzar para que lo atrape el bloque except exterior
-            raise e
-        
-        logger.info(f"✅ Email enviado a {len(admin_emails)} admin(s): Nueva orden #{order_id}")
+        if response.status_code in [200, 201, 202]:
+            logger.info(f"✅ Email enviado exitosamente a {len(admin_emails)} admin(s): Nueva orden #{order_id}")
+        else:
+            logger.warning(f"⚠️ SendGrid respondió con código {response.status_code}")
         
     except Exception as e:
         # No romper la aplicación si falla el email
