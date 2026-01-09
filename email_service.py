@@ -48,6 +48,16 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
             logger.warning("⚠️ Los usuarios admin no tienen emails configurados.")
             return
         
+        # IMPORTANTE: Resend en modo testing (onboarding@resend.dev) solo permite 
+        # enviar al email con el que te registraste. Para enviar a múltiples admins,
+        # necesitas verificar un dominio propio en Resend.
+        is_testing_mode = settings.RESEND_FROM_EMAIL == "onboarding@resend.dev"
+        
+        if is_testing_mode and len(admin_emails) > 1:
+            logger.warning(f"⚠️ Modo testing de Resend: Solo se enviará al primer admin ({admin_emails[0]})")
+            logger.warning("💡 Para enviar a múltiples admins, verifica un dominio en resend.com/domains")
+            admin_emails = [admin_emails[0]]  # Solo enviar al primero
+        
         logger.info(f"📧 Enviando notificación a {len(admin_emails)} admin(s): {', '.join(admin_emails)}")
         
         # Crear el contenido HTML del email
