@@ -1,8 +1,7 @@
 """
-Servicio de email usando SendGrid para notificar a admins sobre nuevas órdenes.
+Servicio de email usando Resend para notificar a admins sobre nuevas órdenes.
 """
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email, To, Content
+import resend
 from config import settings
 import logging
 
@@ -11,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 async def send_new_order_notification(order_id: str, user_email: str, total_amount: float, payment_method: str):
     """
-    Envía un email a TODOS los admins notificando sobre una nueva orden usando SendGrid.
+    Envía un email a TODOS los admins notificando sobre una nueva orden usando Resend.
     
     Args:
         order_id: ID de la orden creada
@@ -24,13 +23,13 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
         logger.info(f"📧 Email deshabilitado. Nueva orden #{order_id} - ${total_amount} - {payment_method}")
         return
     
-    # Validar configuración de SendGrid
-    if not settings.SENDGRID_API_KEY:
-        logger.warning("⚠️ SENDGRID_API_KEY no configurada. No se puede enviar notificación.")
+    # Validar configuración de Resend
+    if not settings.RESEND_API_KEY:
+        logger.warning("⚠️ RESEND_API_KEY no configurada. No se puede enviar notificación.")
         return
     
-    if not settings.SENDGRID_FROM_EMAIL:
-        logger.warning("⚠️ SENDGRID_FROM_EMAIL no configurado. No se puede enviar notificación.")
+    if not settings.RESEND_FROM_EMAIL:
+        logger.warning("⚠️ RESEND_FROM_EMAIL no configurado. No se puede enviar notificación.")
         return
     
     try:
@@ -53,15 +52,20 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
         
         # Crear el contenido HTML del email
         html_content = f"""
+        <!DOCTYPE html>
         <html>
-            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            </head>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f5f5f5;">
                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
-                    <h1 style="color: white; margin: 0;">🛒 Nueva Orden Recibida</h1>
+                    <h1 style="color: white; margin: 0; font-size: 24px;">🛒 Nueva Orden Recibida</h1>
                 </div>
                 
                 <div style="padding: 30px; background: #f9f9f9;">
                     <div style="background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                        <h2 style="color: #333; margin-top: 0;">Detalles de la Orden</h2>
+                        <h2 style="color: #333; margin-top: 0; font-size: 20px;">Detalles de la Orden</h2>
                         
                         <table style="width: 100%; border-collapse: collapse;">
                             <tr>
@@ -91,29 +95,28 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
                 </div>
                 
                 <div style="padding: 20px; text-align: center; color: #666; font-size: 12px;">
-                    <p>EscabiAPI - Sistema de Notificaciones</p>
+                    <p style="margin: 5px 0;">EscabiAPI - Sistema de Notificaciones</p>
                     <p style="margin: 5px 0;">Este es un email automático, por favor no responder.</p>
                 </div>
             </body>
         </html>
         """
         
-        # Crear el mensaje de SendGrid
-        message = Mail(
-            from_email=Email(settings.SENDGRID_FROM_EMAIL, "EscabiAPI"),
-            to_emails=[To(email) for email in admin_emails],
-            subject=f'🛒 Nueva Orden #{order_id} - {payment_method}',
-            html_content=Content("text/html", html_content)
-        )
+        # Configurar Resend con el API Key
+        resend.api_key = settings.RESEND_API_KEY
         
-        # Enviar el email usando SendGrid
-        sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
-        response = sg.send(message)
+        # Enviar el email usando Resend
+        params = {
+            "from": f"EscabiAPI <{settings.RESEND_FROM_EMAIL}>",
+            "to": admin_emails,
+            "subject": f"🛒 Nueva Orden #{order_id} - {payment_method}",
+            "html": html_content,
+        }
         
-        if response.status_code in [200, 201, 202]:
-            logger.info(f"✅ Email enviado exitosamente a {len(admin_emails)} admin(s): Nueva orden #{order_id}")
-        else:
-            logger.warning(f"⚠️ SendGrid respondió con código {response.status_code}")
+        response = resend.Emails.send(params)
+        
+        logger.info(f"✅ Email enviado exitosamente a {len(admin_emails)} admin(s): Nueva orden #{order_id}")
+        logger.debug(f"Resend response: {response}")
         
     except Exception as e:
         # No romper la aplicación si falla el email
