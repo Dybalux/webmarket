@@ -1,4 +1,4 @@
-from bson import ObjectId
+﻿from bson import ObjectId
 from pydantic import BaseModel, Field, EmailStr
 from pydantic_core import core_schema
 from typing import List, Optional, Any
@@ -303,8 +303,8 @@ class ShippingSettings(BaseModel):
     class Config:
         populate_by_name = True
         json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True 
- 
+        arbitrary_types_allowed = True
+
 # Modelos para Combos de Productos
 class ComboItem(BaseModel):
     ""\"Item individual dentro de un combo""\"
