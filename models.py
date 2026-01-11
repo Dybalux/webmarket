@@ -307,12 +307,12 @@ class ShippingSettings(BaseModel):
 
 # Modelos para Combos de Productos
 class ComboItem(BaseModel):
-    ""\"Item individual dentro de un combo""\"
+    """Item individual dentro de un combo"""
     product_id: str = Field(..., description="ID del producto que forma parte del combo")
     quantity: int = Field(..., gt=0, description="Cantidad de este producto en el combo")
 
 class Combo(BaseModel):
-    ""\"Combo de productos (ej: Pack Previa, Pack Fernet)""\"
+    """Combo de productos (ej: Pack Previa, Pack Fernet)"""
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
     name: str = Field(..., min_length=3, max_length=100, description="Nombre del combo")
     description: Optional[str] = Field(None, max_length=500, description="Descripción del combo")
@@ -329,7 +329,7 @@ class Combo(BaseModel):
         arbitrary_types_allowed = True
 
 class ComboCreate(BaseModel):
-    ""\"Modelo para crear un combo""\"
+    """Modelo para crear un combo"""
     name: str = Field(..., min_length=3, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     price: float = Field(..., gt=0)
@@ -338,10 +338,11 @@ class ComboCreate(BaseModel):
     active: bool = True
 
 class ComboUpdate(BaseModel):
-    ""\"Modelo para actualizar un combo""\"
+    """Modelo para actualizar un combo"""
     name: Optional[str] = Field(None, min_length=3, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     price: Optional[float] = Field(None, gt=0)
     image_url: Optional[str] = None
     items: Optional[List[ComboItem]] = Field(None, min_items=1)
     active: Optional[bool] = None
+
