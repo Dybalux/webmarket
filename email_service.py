@@ -48,10 +48,6 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
             logger.warning("⚠️ Los usuarios admin no tienen emails configurados.")
             return
         
-        # MODO TESTING: Solo enviar a luchicapo@gmail.com
-        # TODO: Remover esta línea cuando se verifique un dominio en Resend
-        admin_emails = ["luchicapo@gmail.com"]
-        
         logger.info(f"📧 Enviando notificación a {len(admin_emails)} admin(s): {', '.join(admin_emails)}")
         
         # Crear el contenido HTML del email
