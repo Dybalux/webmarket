@@ -216,6 +216,7 @@ class Address(BaseModel):
 class OrderCreate(BaseModel):
     items: List[CartItem] # Usamos CartItem para la creación, luego se convierte a OrderItem
     shipping_address: Address
+    shipping_zone: str = Field(..., description="Zona de envío: 'central' o 'remote'")
     # payment_method_id: str # ID del método de pago o de la pasarela si fuera necesario aquí
 
 class Order(BaseModel):
@@ -225,6 +226,8 @@ class Order(BaseModel):
     total_amount: float = Field(..., ge=0)
     status: OrderStatus = OrderStatus.PENDING
     shipping_address: Address
+    shipping_zone: str = Field(..., description="Zona de envío: 'central' o 'remote'")
+    shipping_cost: float = Field(default=0.0, description="Costo de envío según zona")
     payment_method: Optional[PaymentMethod] = None  # Método de pago seleccionado
     payment_id: Optional[str] = None # ID de la transacción de pago
     payment_preference_id: Optional[str] = None # ID de la preferencia de Mercado Pago
@@ -287,3 +290,17 @@ class PaymentSettingsUpdate(BaseModel):
     """Modelo para actualizar configuración de pagos"""
     transfer_alias: str = Field(..., min_length=3, max_length=100, description="Alias bancario")
     transfer_whatsapp: str = Field(..., pattern=r"^\+?[0-9]{10,15}$", description="Número de WhatsApp (10-15 dígitos)")
+
+# Modelos para Configuración de Envíos
+class ShippingSettings(BaseModel):
+    """Configuración de precios de envío por zona"""
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    central_zone_price: float = Field(default=500.0, description="Precio de envío zona céntrica")
+    remote_zone_price: float = Field(default=1000.0, description="Precio de envío zonas lejanas")
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_by: Optional[str] = None  # user_id del admin que actualizó
+    
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
+        arbitrary_types_allowed = True

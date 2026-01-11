@@ -24,6 +24,33 @@ def get_products_collection(db=Depends(get_database)):
 def get_carts_collection(db=Depends(get_database)):
     return get_collection("carts")
 
+# Endpoint público para obtener precios de envío
+
+@router.get("/shipping-prices")
+async def get_shipping_prices():
+    """Endpoint público para obtener precios de envío"""
+    try:
+        settings_collection = get_collection("shipping_settings")
+        settings = await settings_collection.find_one({})
+        
+        if not settings:
+            return {
+                "central_zone_price": 500.0,
+                "remote_zone_price": 1000.0
+            }
+        
+        return {
+            "central_zone_price": settings["central_zone_price"],
+            "remote_zone_price": settings["remote_zone_price"]
+        }
+    except Exception as e:
+        logger.error(f"Error al obtener precios de envío: {e}", exc_info=True)
+        # Devolver precios por defecto en caso de error
+        return {
+            "central_zone_price": 500.0,
+            "remote_zone_price": 1000.0
+        }
+
 # Endpoint para crear un pedido
 
 @router.post("/", response_model=Order, status_code=status.HTTP_201_CREATED)
@@ -86,13 +113,34 @@ async def create_order(
             "quantity_to_decrement": item.quantity
         })
 
+    # Validar zona de envío
+    if order_data.shipping_zone not in ["central", "remote"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Zona de envío inválida. Debe ser 'central' o 'remote'."
+        )
+    
+    # Obtener precio de envío según zona
+    settings_collection = get_collection("shipping_settings")
+    settings = await settings_collection.find_one({})
+    
+    if order_data.shipping_zone == "central":
+        shipping_cost = settings.get("central_zone_price", 500.0) if settings else 500.0
+    else:  # remote
+        shipping_cost = settings.get("remote_zone_price", 1000.0) if settings else 1000.0
+    
+    # Calcular total incluyendo envío
+    total_with_shipping = total_amount + shipping_cost
+    
     # 3. Crear el documento del pedido
     new_order = Order(
         user_id=user_id,
         items=order_items,
-        total_amount=total_amount,
+        total_amount=total_with_shipping,  # Total con envío incluido
         status=OrderStatus.PENDING,
         shipping_address=order_data.shipping_address,
+        shipping_zone=order_data.shipping_zone,
+        shipping_cost=shipping_cost,
         payment_method=payment_method  # Guardar el método de pago seleccionado
     )
     
@@ -129,7 +177,7 @@ async def create_order(
         await send_new_order_notification(
             order_id=str(result.inserted_id),
             user_email=user_email,
-            total_amount=total_amount,
+            total_amount=total_with_shipping,  # Enviar total con envío
             payment_method=payment_method.value
         )
     except Exception as e:

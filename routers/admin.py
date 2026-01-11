@@ -3,7 +3,7 @@ from typing import List, Optional
 from bson import ObjectId
 from datetime import datetime, timedelta
 
-from models import Order, UserResponse, OrderStatus, UserRole, TokenData
+from models import Order, UserResponse, OrderStatus, UserRole, TokenData, ShippingSettings
 from database import get_database, get_collection
 from security import get_current_admin_user
 import logging
@@ -313,4 +313,89 @@ async def update_user_role(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al actualizar el rol del usuario."
+        )
+
+
+# --- Endpoints de Configuración de Envíos ---
+
+@router.get("/shipping-settings", response_model=ShippingSettings, tags=["Admin"])
+async def get_shipping_settings(
+    current_admin_user: TokenData = Depends(get_current_admin_user)
+):
+    """
+    [Admin] Obtiene la configuración de precios de envío.
+    Requiere permisos de administrador.
+    """
+    try:
+        settings_collection = get_collection("shipping_settings")
+        settings = await settings_collection.find_one({})
+        
+        if not settings:
+            # Crear configuración por defecto
+            default_settings = {
+                "central_zone_price": 500.0,
+                "remote_zone_price": 1000.0,
+                "updated_at": datetime.utcnow()
+            }
+            result = await settings_collection.insert_one(default_settings)
+            settings = await settings_collection.find_one({"_id": result.inserted_id})
+        
+        logger.info(f"Admin {current_admin_user.username} consultó la configuración de envíos.")
+        return ShippingSettings(**settings)
+    
+    except Exception as e:
+        logger.error(f"Error al obtener configuración de envíos: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al obtener la configuración de envíos."
+        )
+
+
+@router.put("/shipping-settings", tags=["Admin"])
+async def update_shipping_settings(
+    central_zone_price: float = Query(..., gt=0, description="Precio de envío zona céntrica"),
+    remote_zone_price: float = Query(..., gt=0, description="Precio de envío zonas lejanas"),
+    current_admin_user: TokenData = Depends(get_current_admin_user)
+):
+    """
+    [Admin] Actualiza los precios de envío.
+    Requiere permisos de administrador.
+    """
+    try:
+        settings_collection = get_collection("shipping_settings")
+        settings = await settings_collection.find_one({})
+        
+        update_data = {
+            "central_zone_price": central_zone_price,
+            "remote_zone_price": remote_zone_price,
+            "updated_at": datetime.utcnow(),
+            "updated_by": current_admin_user.user_id
+        }
+        
+        if settings:
+            # Actualizar existente
+            await settings_collection.update_one(
+                {"_id": settings["_id"]},
+                {"$set": update_data}
+            )
+        else:
+            # Crear nuevo
+            await settings_collection.insert_one(update_data)
+        
+        logger.info(
+            f"Admin {current_admin_user.username} actualizó precios de envío: "
+            f"Central=${central_zone_price}, Remote=${remote_zone_price}"
+        )
+        
+        return {
+            "message": "Precios de envío actualizados correctamente",
+            "central_zone_price": central_zone_price,
+            "remote_zone_price": remote_zone_price
+        }
+    
+    except Exception as e:
+        logger.error(f"Error al actualizar configuración de envíos: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al actualizar la configuración de envíos."
         )
