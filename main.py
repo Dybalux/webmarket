@@ -58,6 +58,10 @@ origins = [
     # Vercel - deployment URLs
     "https://escabi-frontend-3dtk1loe5-dybaluxs-projects.vercel.app",  # Current Vercel deployment
     "https://escabi-frontend.vercel.app",  # Production Vercel (if you set up custom domain)
+    # Custom Domains
+    "https://altotrago.com",
+    "https://www.altotrago.com",
+    settings.FRONTEND_URL, # Configurado desde variables de entorno
 ]
 
 # En producción, NUNCA usar "*"
