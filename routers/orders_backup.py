@@ -24,71 +24,6 @@ def get_products_collection(db=Depends(get_database)):
 def get_carts_collection(db=Depends(get_database)):
     return get_collection("carts")
 
-# Función helper para procesar combos
-async def process_combo_item(combo_id: str, quantity: int, products_collection):
-    """
-    Procesa un combo y retorna los productos individuales que lo componen.
-    
-    Args:
-        combo_id: ID del combo
-        quantity: Cantidad de combos solicitados
-        products_collection: Colección de productos
-    
-    Returns:
-        dict con 'products_to_decrement' (lista de productos a restar stock) y 'total_price'
-    """
-    combos_collection = get_collection("combos")
-    
-    # Obtener el combo
-    combo = await combos_collection.find_one({"_id": ObjectId(combo_id), "active": True})
-    if not combo:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Combo con ID {combo_id} no encontrado o inactivo."
-        )
-    
-    products_to_decrement = []
-    
-    # Iterar sobre los items del combo
-    for combo_item in combo["items"]:
-        product_id = combo_item["product_id"]
-        quantity_per_combo = combo_item["quantity"]
-        total_quantity_needed = quantity_per_combo * quantity  # Cantidad total necesaria
-        
-        # Validar que el producto existe
-        if not ObjectId.is_valid(product_id):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"ID de producto inválido en combo: {product_id}"
-            )
-        
-        product = await products_collection.find_one({"_id": ObjectId(product_id)})
-        if not product:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Producto {product_id} del combo no encontrado."
-            )
-        
-        # Validar stock
-        if product.get("stock", 0) < total_quantity_needed:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Stock insuficiente para '{product['name']}' (parte del combo '{combo['name']}'). Disponible: {product.get('stock', 0)}, Necesario: {total_quantity_needed}."
-            )
-        
-        # Agregar a la lista de productos a decrementar
-        products_to_decrement.append({
-            "id": ObjectId(product_id),
-            "quantity_to_decrement": total_quantity_needed,
-            "name": product["name"]
-        })
-    
-    return {
-        "products_to_decrement": products_to_decrement,
-        "combo_name": combo["name"],
-        "combo_price": combo["price"]
-    }
-
 # Endpoint público para obtener precios de envío
 
 @router.get("/shipping-prices")
@@ -152,67 +87,31 @@ async def create_order(
     total_amount = 0.0
 
     # 2. Iterar sobre los ítems del carrito para validar y construir el pedido
-    # Ahora soportamos tanto productos individuales como combos
     product_ids_to_update = []
-    combos_collection = get_collection("combos")
-    
     for item in cart.items:
-        # Primero intentar buscar como producto
         product = await products_collection.find_one({"_id": ObjectId(item.product_id)})
         
-        # Si no es un producto, intentar buscar como combo
         if not product:
-            combo = await combos_collection.find_one({"_id": ObjectId(item.product_id), "active": True})
-            
-            if combo:
-                # ES UN COMBO
-                logger.info(f"Procesando combo '{combo['name']}' (cantidad: {item.quantity})")
-                
-                # Procesar el combo y obtener los productos que lo componen
-                combo_data = await process_combo_item(item.product_id, item.quantity, products_collection)
-                
-                # Agregar los productos del combo a la lista de actualización de stock
-                product_ids_to_update.extend(combo_data["products_to_decrement"])
-                
-                # Crear el OrderItem para el combo
-                order_item = OrderItem(
-                    product_id=ObjectId(item.product_id),
-                    name=f"{combo_data['combo_name']} (Combo)",
-                    quantity=item.quantity,
-                    price_at_purchase=combo_data["combo_price"]
-                )
-                order_items.append(order_item)
-                total_amount += order_item.price_at_purchase * order_item.quantity
-                
-            else:
-                # No es ni producto ni combo
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Producto o Combo con ID {item.product_id} no encontrado."
-                )
-        else:
-            # ES UN PRODUCTO NORMAL
-            if product.get("stock", 0) < item.quantity:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Stock insuficiente para '{product['name']}'. Disponible: {product.get('stock', 0)}, Solicitado: {item.quantity}."
-                )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Producto con ID {item.product_id} no encontrado.")
+        
+        if product.get("stock", 0) < item.quantity:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Stock insuficiente para '{product['name']}'. Disponible: {product.get('stock', 0)}, Solicitado: {item.quantity}.")
 
-            # Construir el OrderItem con los datos actuales del producto
-            order_item = OrderItem(
-                product_id=product["_id"],
-                name=product["name"],
-                quantity=item.quantity,
-                price_at_purchase=product["price"]
-            )
-            order_items.append(order_item)
-            total_amount += order_item.price_at_purchase * order_item.quantity
-            
-            # Guardar la info para actualizar el stock después
-            product_ids_to_update.append({
-                "id": ObjectId(item.product_id),
-                "quantity_to_decrement": item.quantity
-            })
+        # Construir el OrderItem con los datos actuales del producto
+        order_item = OrderItem(
+            product_id=product["_id"],
+            name=product["name"],
+            quantity=item.quantity,
+            price_at_purchase=product["price"]
+        )
+        order_items.append(order_item)
+        total_amount += order_item.price_at_purchase * order_item.quantity
+        
+        # Guardar la info para actualizar el stock después
+        product_ids_to_update.append({
+            "id": ObjectId(item.product_id),
+            "quantity_to_decrement": item.quantity
+        })
 
     # Validar zona de envío
     if order_data.shipping_zone not in ["central", "remote"]:

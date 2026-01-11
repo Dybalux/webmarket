@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database import connect_db, close_db, get_database
-from routers import auth, products, age_verification, cart, orders, payments, inventory, admin, payment_settings
+from routers import auth, products, age_verification, cart, orders, payments, inventory, admin, payment_settings, combos
 from contextlib import asynccontextmanager
 from datetime import datetime
 import uvicorn
@@ -145,6 +145,7 @@ app.include_router(payments.router, prefix="/payments", tags=["Pagos"])
 app.include_router(inventory.router, prefix="/inventory", tags=["Inventario"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(payment_settings.router, prefix="", tags=["Configuración de Pagos"])
+app.include_router(combos.router, prefix="/combos", tags=["Combos"])
 
 # Punto de entrada
 if __name__ == "__main__":
