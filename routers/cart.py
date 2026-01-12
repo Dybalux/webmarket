@@ -59,23 +59,60 @@ async def get_cart(
     """
     Obtiene el carrito de compras del usuario autenticado con información detallada.
     Incluye datos completos de productos y combos (nombre, precio, imagen, stock, etc.).
+    Optimizado con bulk queries para mejor performance.
     Requiere que el usuario haya verificado su mayoría de edad.
     """
     # Obtener el carrito básico
     cart = await get_user_cart(carts_collection, user_id)
     
-    # Enriquecer cada item con información detallada
-    enriched_items = []
+    if not cart.items:
+        # Carrito vacío, devolver directamente
+        return CartDetailed(id=cart.id, user_id=cart.user_id, items=[])
+    
+    # OPTIMIZACIÓN: Obtener todos los IDs para hacer bulk queries
+    all_item_ids = [ObjectId(item.product_id) for item in cart.items]
+    
+    # Bulk query para productos (proyección de campos necesarios)
+    products_cursor = products_collection.find(
+        {"_id": {"$in": all_item_ids}},
+        {"name": 1, "price": 1, "image_url": 1, "stock": 1}
+    )
+    products_dict = {str(p["_id"]): p async for p in products_cursor}
+    
+    # Bulk query para combos
     combos_collection = get_collection("combos")
+    combos_cursor = combos_collection.find(
+        {"_id": {"$in": all_item_ids}},
+        {"name": 1, "price": 1, "image_url": 1, "items": 1, "active": 1}
+    )
+    combos_dict = {str(c["_id"]): c async for c in combos_cursor}
+    
+    # Obtener IDs de productos dentro de combos para una sola query adicional
+    combo_product_ids = set()
+    for combo in combos_dict.values():
+        for combo_item in combo.get("items", []):
+            combo_product_ids.add(ObjectId(combo_item["product_id"]))
+    
+    # Bulk query para productos de combos
+    combo_products_dict = {}
+    if combo_product_ids:
+        combo_products_cursor = products_collection.find(
+            {"_id": {"$in": list(combo_product_ids)}},
+            {"name": 1, "image_url": 1}
+        )
+        combo_products_dict = {str(p["_id"]): p async for p in combo_products_cursor}
+    
+    # Enriquecer items usando los datos obtenidos
+    enriched_items = []
     
     for item in cart.items:
-        # Intentar buscar como producto primero
-        product = await products_collection.find_one({"_id": ObjectId(item.product_id)})
+        product_id_str = item.product_id
         
-        if product:
-            # Es un producto
+        # Verificar si es producto
+        if product_id_str in products_dict:
+            product = products_dict[product_id_str]
             enriched_item = CartItemDetailed(
-                product_id=str(product["_id"]),
+                product_id=product_id_str,
                 quantity=item.quantity,
                 item_type="product",
                 name=product["name"],
@@ -85,37 +122,38 @@ async def get_cart(
                 combo_items=None
             )
             enriched_items.append(enriched_item)
-        else:
-            # Intentar buscar como combo
-            combo = await combos_collection.find_one({"_id": ObjectId(item.product_id)})
+        
+        # Verificar si es combo
+        elif product_id_str in combos_dict:
+            combo = combos_dict[product_id_str]
             
-            if combo:
-                # Es un combo - incluir información de los items del combo
-                combo_items_info = []
-                for combo_item in combo.get("items", []):
-                    prod = await products_collection.find_one({"_id": ObjectId(combo_item["product_id"])})
-                    if prod:
-                        combo_items_info.append({
-                            "product_id": str(prod["_id"]),
-                            "name": prod["name"],
-                            "quantity": combo_item["quantity"],
-                            "image_url": prod.get("image_url")
-                        })
-                
-                enriched_item = CartItemDetailed(
-                    product_id=str(combo["_id"]),
-                    quantity=item.quantity,
-                    item_type="combo",
-                    name=combo["name"],
-                    price=combo["price"],
-                    image_url=combo.get("image_url"),
-                    stock=None,
-                    combo_items=combo_items_info
-                )
-                enriched_items.append(enriched_item)
-            else:
-                # Item no encontrado - podría haber sido eliminado
-                logger.warning(f"Item {item.product_id} en carrito de usuario {user_id} no encontrado en productos ni combos")
+            # Construir información de items del combo
+            combo_items_info = []
+            for combo_item in combo.get("items", []):
+                combo_prod_id = combo_item["product_id"]
+                if combo_prod_id in combo_products_dict:
+                    prod = combo_products_dict[combo_prod_id]
+                    combo_items_info.append({
+                        "product_id": combo_prod_id,
+                        "name": prod["name"],
+                        "quantity": combo_item["quantity"],
+                        "image_url": prod.get("image_url")
+                    })
+            
+            enriched_item = CartItemDetailed(
+                product_id=product_id_str,
+                quantity=item.quantity,
+                item_type="combo",
+                name=combo["name"],
+                price=combo["price"],
+                image_url=combo.get("image_url"),
+                stock=None,
+                combo_items=combo_items_info
+            )
+            enriched_items.append(enriched_item)
+        else:
+            # Item no encontrado
+            logger.warning(f"Item {product_id_str} en carrito de usuario {user_id} no encontrado")
     
     # Construir respuesta enriquecida
     enriched_cart = CartDetailed(
@@ -329,6 +367,150 @@ async def remove_from_cart(
     await save_cart(carts_collection, cart)
     logger.info(f"Usuario {user_id} eliminó producto {product_id} del carrito.")
     return cart
+
+@router.post("/cleanup")
+async def cleanup_cart(
+    user_id: str = Depends(get_current_active_user_id),
+    carts_collection = Depends(get_carts_collection),
+    products_collection = Depends(get_products_collection),
+    current_verified_user: TokenData = Depends(get_current_verified_user)
+):
+    """
+    Limpia automáticamente el carrito eliminando items que ya no existen o están inactivos.
+    Devuelve el carrito limpio y la lista de items eliminados con sus razones.
+    """
+    cart = await get_user_cart(carts_collection, user_id)
+    combos_collection = get_collection("combos")
+    
+    valid_items = []
+    removed_items = []
+    
+    for item in cart.items:
+        # Verificar si es un producto válido
+        product = await products_collection.find_one({"_id": ObjectId(item.product_id)})
+        
+        if product:
+            # Es un producto válido
+            valid_items.append(item)
+        else:
+            # No es producto, verificar si es combo
+            combo = await combos_collection.find_one({"_id": ObjectId(item.product_id)})
+            
+            if combo:
+                # Es un combo, verificar si está activo
+                if combo.get("active", False):
+                    valid_items.append(item)
+                else:
+                    # Combo desactivado
+                    removed_items.append({
+                        "product_id": item.product_id,
+                        "quantity": item.quantity,
+                        "reason": f"Combo desactivado: {combo['name']}"
+                    })
+                    logger.info(f"Removido combo desactivado {item.product_id} del carrito de usuario {user_id}")
+            else:
+                # No existe ni como producto ni como combo
+                removed_items.append({
+                    "product_id": item.product_id,
+                    "quantity": item.quantity,
+                    "reason": "Producto o combo no encontrado"
+                })
+                logger.info(f"Removido item inexistente {item.product_id} del carrito de usuario {user_id}")
+    
+    # Actualizar carrito con items válidos
+    cart.items = valid_items
+    await save_cart(carts_collection, cart)
+    
+    return {
+        "cart": cart,
+        "removed_items": removed_items,
+        "removed_count": len(removed_items)
+    }
+
+@router.get("/validate-stock")
+async def validate_cart_stock(
+    user_id: str = Depends(get_current_active_user_id),
+    carts_collection = Depends(get_carts_collection),
+    products_collection = Depends(get_products_collection),
+    current_verified_user: TokenData = Depends(get_current_verified_user)
+):
+    """
+    Valida el stock disponible para todos los items en el carrito sin modificarlo.
+    Útil para verificaciones en tiempo real y mostrar advertencias al usuario.
+    """
+    cart = await get_user_cart(carts_collection, user_id)
+    combos_collection = get_collection("combos")
+    
+    validation_results = []
+    
+    for item in cart.items:
+        # Verificar si es producto
+        product = await products_collection.find_one({"_id": ObjectId(item.product_id)})
+        
+        if product:
+            # Validar stock de producto
+            available = product.get("stock", 0) >= item.quantity
+            
+            validation_results.append({
+                "product_id": item.product_id,
+                "quantity_in_cart": item.quantity,
+                "available": available,
+                "stock": product.get("stock", 0),
+                "item_type": "product",
+                "name": product["name"]
+            })
+        else:
+            # Verificar si es combo
+            combo = await combos_collection.find_one({"_id": ObjectId(item.product_id)})
+            
+            if combo:
+                # Validar stock de cada producto del combo
+                available = True
+                limiting_product = None
+                
+                for combo_item in combo.get("items", []):
+                    prod = await products_collection.find_one({"_id": ObjectId(combo_item["product_id"])})
+                    if prod:
+                        needed = combo_item["quantity"] * item.quantity
+                        stock = prod.get("stock", 0)
+                        
+                        if stock < needed:
+                            available = False
+                            limiting_product = {
+                                "name": prod["name"],
+                                "stock": stock,
+                                "needed": needed
+                            }
+                            break
+                
+                result = {
+                    "product_id": item.product_id,
+                    "quantity_in_cart": item.quantity,
+                    "available": available,
+                    "item_type": "combo",
+                    "name": combo["name"],
+                    "active": combo.get("active", False)
+                }
+                
+                if limiting_product:
+                    result["limiting_product"] = limiting_product
+                
+                validation_results.append(result)
+            else:
+                # Item no encontrado
+                validation_results.append({
+                    "product_id": item.product_id,
+                    "quantity_in_cart": item.quantity,
+                    "available": False,
+                    "item_type": "unknown",
+                    "name": "Item no encontrado",
+                    "error": "Producto o combo no existe"
+                })
+    
+    return {
+        "items": validation_results,
+        "all_available": all(item["available"] for item in validation_results)
+    }
 
 @router.delete("/clear", response_model=Cart)
 async def clear_cart(
