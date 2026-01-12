@@ -21,8 +21,8 @@ async def get_payment_settings_public(
     payment_settings_collection = Depends(get_payment_settings_collection)
 ):
     """
-    Obtiene la configuración actual de pagos (público).
-    Endpoint para que el frontend obtenga el alias y WhatsApp para transferencias.
+    Obtiene la configuración actual de pagos y contacto (público).
+    Endpoint para que el frontend obtenga alias, WhatsApp, Instagram y email.
     """
     try:
         settings = await payment_settings_collection.find_one({})
@@ -33,6 +33,8 @@ async def get_payment_settings_public(
             return PaymentSettings(
                 transfer_alias="ESCABI.API.MP",
                 transfer_whatsapp="+5491112345678",
+                instagram_url=None,
+                email=None,
                 updated_at=datetime.utcnow()
             )
         
@@ -85,7 +87,7 @@ async def update_payment_settings(
     current_admin_user: TokenData = Depends(get_current_admin_user)
 ):
     """
-    [Admin] Actualiza la configuración de pagos (alias y WhatsApp).
+    [Admin] Actualiza la configuración de pagos y contacto (alias, WhatsApp, Instagram, email).
     Requiere permisos de administrador.
     """
     try:
@@ -95,6 +97,8 @@ async def update_payment_settings(
         update_data = {
             "transfer_alias": settings_update.transfer_alias,
             "transfer_whatsapp": settings_update.transfer_whatsapp,
+            "instagram_url": settings_update.instagram_url,
+            "email": settings_update.email,
             "updated_at": datetime.utcnow(),
             "updated_by": current_admin_user.user_id
         }
@@ -106,8 +110,9 @@ async def update_payment_settings(
                 {"$set": update_data}
             )
             logger.info(
-                f"Admin {current_admin_user.username} actualizó la configuración de pagos. "
-                f"Alias: {settings_update.transfer_alias}, WhatsApp: {settings_update.transfer_whatsapp}"
+                f"Admin {current_admin_user.username} actualizó la configuración. "
+                f"Alias: {settings_update.transfer_alias}, WhatsApp: {settings_update.transfer_whatsapp}, "
+                f"Instagram: {settings_update.instagram_url}, Email: {settings_update.email}"
             )
             
             # Obtener configuración actualizada
@@ -120,8 +125,9 @@ async def update_payment_settings(
             result = await payment_settings_collection.insert_one(settings_dict)
             
             logger.info(
-                f"Admin {current_admin_user.username} creó la configuración de pagos. "
-                f"Alias: {settings_update.transfer_alias}, WhatsApp: {settings_update.transfer_whatsapp}"
+                f"Admin {current_admin_user.username} creó la configuración. "
+                f"Alias: {settings_update.transfer_alias}, WhatsApp: {settings_update.transfer_whatsapp}, "
+                f"Instagram: {settings_update.instagram_url}, Email: {settings_update.email}"
             )
             
             # Obtener configuración creada

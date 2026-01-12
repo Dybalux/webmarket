@@ -296,12 +296,14 @@ class InventoryAlert(BaseModel):
     class Config:
         populate_by_name = True
 
-# Modelos para Configuración de Pagos
+# Modelos para Configuración de Pagos y Contacto
 class PaymentSettings(BaseModel):
-    """Configuración de métodos de pago (editable por admin)"""
+    """Configuración de métodos de pago y contacto (editable por admin)"""
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
     transfer_alias: str = Field(..., description="Alias bancario para transferencias")
     transfer_whatsapp: str = Field(..., description="Número de WhatsApp para comprobantes")
+    instagram_url: Optional[str] = Field(None, description="URL de Instagram del negocio")
+    email: Optional[str] = Field(None, description="Email de contacto del negocio")
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     updated_by: Optional[str] = None  # user_id del admin que actualizó
     
@@ -311,9 +313,11 @@ class PaymentSettings(BaseModel):
         arbitrary_types_allowed = True
 
 class PaymentSettingsUpdate(BaseModel):
-    """Modelo para actualizar configuración de pagos"""
+    """Modelo para actualizar configuración de pagos y contacto"""
     transfer_alias: str = Field(..., min_length=3, max_length=100, description="Alias bancario")
     transfer_whatsapp: str = Field(..., pattern=r"^\+?[0-9]{10,15}$", description="Número de WhatsApp (10-15 dígitos)")
+    instagram_url: Optional[str] = Field(None, max_length=200, description="URL de Instagram")
+    email: Optional[str] = Field(None, description="Email de contacto")
 
 # Modelos para Configuración de Envíos
 class ShippingSettings(BaseModel):
