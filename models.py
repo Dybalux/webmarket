@@ -194,6 +194,30 @@ class Cart(BaseModel):
         "json_encoders": {ObjectId: str},
     }
 
+# Modelos para respuesta enriquecida del carrito
+class CartItemDetailed(BaseModel):
+    """Item del carrito con información detallada del producto o combo"""
+    product_id: str = Field(..., description="ID del producto o combo")
+    quantity: int = Field(..., description="Cantidad en el carrito")
+    item_type: str = Field(..., description="Tipo de item: 'product' o 'combo'")
+    name: str = Field(..., description="Nombre del producto o combo")
+    price: float = Field(..., description="Precio unitario")
+    image_url: Optional[str] = Field(None, description="URL de la imagen")
+    stock: Optional[int] = Field(None, description="Stock disponible (solo para productos)")
+    combo_items: Optional[List[dict]] = Field(None, description="Items del combo (solo para combos)")
+
+class CartDetailed(BaseModel):
+    """Carrito con información detallada de productos y combos"""
+    id: Optional[str] = Field(None, alias="_id")
+    user_id: str
+    items: List[CartItemDetailed]
+    
+    model_config = {
+        "populate_by_name": True,
+        "arbitrary_types_allowed": True,
+        "json_encoders": {ObjectId: str},
+    }
+
 # Modelos para Pedidos
 class OrderItem(BaseModel):
     _id: Optional[PyObjectId] = None

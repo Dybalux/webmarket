@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Optional
 from bson import ObjectId
 
-from models import Cart, CartItem, Product, TokenData, UserRole
+from models import Cart, CartItem, CartDetailed, CartItemDetailed, Product, TokenData, UserRole
 from database import get_database, get_collection
 from security import get_current_active_user_id, get_current_verified_user # Importamos dependencia para usuario activo y verificado
 
@@ -49,20 +49,82 @@ async def save_cart(carts_collection, cart: Cart):
     return cart
 
 # --- Endpoints del carrito ---
-@router.get("/", response_model=Cart)
+@router.get("/", response_model=CartDetailed)
 async def get_cart(
     user_id: str = Depends(get_current_active_user_id),
     carts_collection = Depends(get_carts_collection),
-    # Requiere que el usuario esté verificado para ver el carrito de bebidas alcohólicas
-    # Opcional: podrías permitir ver el carrito sin verificar, pero no avanzar al checkout
+    products_collection = Depends(get_products_collection),
     current_verified_user: TokenData = Depends(get_current_verified_user) 
 ):
     """
-    Obtiene el carrito de compras del usuario autenticado. Si no existe, crea uno vacío.
+    Obtiene el carrito de compras del usuario autenticado con información detallada.
+    Incluye datos completos de productos y combos (nombre, precio, imagen, stock, etc.).
     Requiere que el usuario haya verificado su mayoría de edad.
     """
+    # Obtener el carrito básico
     cart = await get_user_cart(carts_collection, user_id)
-    return cart
+    
+    # Enriquecer cada item con información detallada
+    enriched_items = []
+    combos_collection = get_collection("combos")
+    
+    for item in cart.items:
+        # Intentar buscar como producto primero
+        product = await products_collection.find_one({"_id": ObjectId(item.product_id)})
+        
+        if product:
+            # Es un producto
+            enriched_item = CartItemDetailed(
+                product_id=str(product["_id"]),
+                quantity=item.quantity,
+                item_type="product",
+                name=product["name"],
+                price=product["price"],
+                image_url=product.get("image_url"),
+                stock=product.get("stock", 0),
+                combo_items=None
+            )
+            enriched_items.append(enriched_item)
+        else:
+            # Intentar buscar como combo
+            combo = await combos_collection.find_one({"_id": ObjectId(item.product_id)})
+            
+            if combo:
+                # Es un combo - incluir información de los items del combo
+                combo_items_info = []
+                for combo_item in combo.get("items", []):
+                    prod = await products_collection.find_one({"_id": ObjectId(combo_item["product_id"])})
+                    if prod:
+                        combo_items_info.append({
+                            "product_id": str(prod["_id"]),
+                            "name": prod["name"],
+                            "quantity": combo_item["quantity"],
+                            "image_url": prod.get("image_url")
+                        })
+                
+                enriched_item = CartItemDetailed(
+                    product_id=str(combo["_id"]),
+                    quantity=item.quantity,
+                    item_type="combo",
+                    name=combo["name"],
+                    price=combo["price"],
+                    image_url=combo.get("image_url"),
+                    stock=None,
+                    combo_items=combo_items_info
+                )
+                enriched_items.append(enriched_item)
+            else:
+                # Item no encontrado - podría haber sido eliminado
+                logger.warning(f"Item {item.product_id} en carrito de usuario {user_id} no encontrado en productos ni combos")
+    
+    # Construir respuesta enriquecida
+    enriched_cart = CartDetailed(
+        id=cart.id,
+        user_id=cart.user_id,
+        items=enriched_items
+    )
+    
+    return enriched_cart
 
 @router.post("/add", response_model=Cart)
 async def add_to_cart(

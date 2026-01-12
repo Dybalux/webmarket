@@ -162,10 +162,18 @@ async def create_order(
         
         # Si no es un producto, intentar buscar como combo
         if not product:
-            combo = await combos_collection.find_one({"_id": ObjectId(item.product_id), "active": True})
+            # Buscar el combo (sin filtrar por active primero para dar mejor mensaje de error)
+            combo = await combos_collection.find_one({"_id": ObjectId(item.product_id)})
             
             if combo:
-                # ES UN COMBO
+                # Validar que el combo esté activo
+                if not combo.get("active", False):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"El combo '{combo['name']}' ya no está disponible. Por favor, elimínalo de tu carrito antes de continuar."
+                    )
+                
+                # ES UN COMBO ACTIVO
                 logger.info(f"Procesando combo '{combo['name']}' (cantidad: {item.quantity})")
                 
                 # Procesar el combo y obtener los productos que lo componen
