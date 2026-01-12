@@ -3,7 +3,7 @@ from typing import List, Optional
 from bson import ObjectId
 from datetime import datetime
 
-from models import Combo, ComboCreate, ComboUpdate, TokenData
+from models import Combo, ComboCreate, ComboUpdate, ComboDetailed, ComboItemDetailed, TokenData
 from database import get_collection
 from security import get_current_admin_user
 import logging
@@ -15,22 +15,82 @@ router = APIRouter()
 
 # --- Endpoint Público ---
 
-@router.get("/", response_model=List[Combo])
+@router.get("/", response_model=List[ComboDetailed])
 async def get_active_combos():
     """
-    Obtiene todos los combos activos disponibles para compra.
+    Obtiene todos los combos activos con información detallada de productos.
+    Incluye nombre, precio, imagen y stock de cada producto en el combo.
+    Optimizado con bulk queries para mejor performance.
     Endpoint público - no requiere autenticación.
     """
     try:
         combos_collection = get_collection("combos")
+        products_collection = get_collection("products")
+        
+        # Obtener todos los combos activos
         combos_cursor = combos_collection.find({"active": True}).sort("created_at", -1)
         combos_list = []
         
         async for combo_doc in combos_cursor:
-            combos_list.append(Combo(**combo_doc))
+            combos_list.append(combo_doc)
         
-        logger.info(f"Se obtuvieron {len(combos_list)} combos activos.")
-        return combos_list
+        if not combos_list:
+            return []
+        
+        # OPTIMIZACIÓN: Obtener todos los product_ids de todos los combos
+        all_product_ids = set()
+        for combo in combos_list:
+            for item in combo.get("items", []):
+                all_product_ids.add(ObjectId(item["product_id"]))
+        
+        # Bulk query para obtener todos los productos de una vez
+        products_cursor = products_collection.find(
+            {"_id": {"$in": list(all_product_ids)}},
+            {"name": 1, "price": 1, "image_url": 1, "stock": 1}
+        )
+        products_dict = {str(p["_id"]): p async for p in products_cursor}
+        
+        # Construir respuesta enriquecida
+        enriched_combos = []
+        
+        for combo in combos_list:
+            # Enriquecer items del combo con información de productos
+            enriched_items = []
+            
+            for item in combo.get("items", []):
+                product_id = item["product_id"]
+                
+                if product_id in products_dict:
+                    product = products_dict[product_id]
+                    enriched_item = ComboItemDetailed(
+                        product_id=product_id,
+                        quantity=item["quantity"],
+                        name=product["name"],
+                        price=product["price"],
+                        image_url=product.get("image_url"),
+                        stock=product.get("stock", 0)
+                    )
+                    enriched_items.append(enriched_item)
+                else:
+                    # Producto no encontrado - skip
+                    logger.warning(f"Producto {product_id} del combo {combo['_id']} no encontrado")
+            
+            # Crear combo enriquecido
+            enriched_combo = ComboDetailed(
+                _id=combo["_id"],
+                name=combo["name"],
+                description=combo.get("description"),
+                price=combo["price"],
+                image_url=combo.get("image_url"),
+                items=enriched_items,
+                active=combo.get("active", True),
+                created_at=combo.get("created_at"),
+                updated_at=combo.get("updated_at")
+            )
+            enriched_combos.append(enriched_combo)
+        
+        logger.info(f"Se obtuvieron {len(enriched_combos)} combos activos con información detallada.")
+        return enriched_combos
     
     except Exception as e:
         logger.error(f"Error al obtener combos: {e}", exc_info=True)
@@ -38,6 +98,7 @@ async def get_active_combos():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al obtener los combos."
         )
+
 
 
 @router.get("/{combo_id}", response_model=Combo)

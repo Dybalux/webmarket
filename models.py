@@ -370,3 +370,30 @@ class ComboUpdate(BaseModel):
     items: Optional[List[ComboItem]] = Field(None, min_items=1)
     active: Optional[bool] = None
 
+# Modelos para respuesta enriquecida de combos
+class ComboItemDetailed(BaseModel):
+    """Item de combo con información completa del producto"""
+    product_id: str = Field(..., description="ID del producto")
+    quantity: int = Field(..., description="Cantidad en el combo")
+    name: str = Field(..., description="Nombre del producto")
+    price: float = Field(..., description="Precio unitario del producto")
+    image_url: Optional[str] = Field(None, description="URL de la imagen del producto")
+    stock: int = Field(..., description="Stock disponible del producto")
+
+class ComboDetailed(BaseModel):
+    """Combo con información detallada de productos"""
+    id: PyObjectId = Field(alias="_id")
+    name: str
+    description: Optional[str] = None
+    price: float
+    image_url: Optional[str] = None
+    items: List[ComboItemDetailed]
+    active: bool
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
+        arbitrary_types_allowed = True
+
