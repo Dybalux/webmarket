@@ -180,8 +180,8 @@ class PaginatedResponse(BaseModel):
 
 # Modelos para Carrito de Compras
 class CartItem(BaseModel):
-    product_id: str = Field(..., description="ID del producto en el carrito")
-    quantity: int = Field(..., gt=0, description="Cantidad del producto (mayor que cero)")
+    product_id: str = Field(..., description="ID del producto o combo en el carrito")
+    quantity: int = Field(..., gt=0, description="Cantidad del producto/combo (mayor que cero)")
 
 class Cart(BaseModel):
     id: Optional[str] = Field(None, alias="_id")

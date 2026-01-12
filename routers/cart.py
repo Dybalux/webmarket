@@ -73,18 +73,35 @@ async def add_to_cart(
     current_verified_user: TokenData = Depends(get_current_verified_user)
 ):
     """
-    Añade un producto al carrito de compras del usuario o actualiza su cantidad.
+    Añade un producto o combo al carrito de compras del usuario o actualiza su cantidad.
     Requiere que el usuario haya verificado su mayoría de edad.
     """
-    # 1. Verificar que el producto exista
-    product_db = await products_collection.find_one({"_id": ObjectId(cart_item_data.product_id)})
-    if not product_db:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado.")
+    # 1. Verificar que el ID sea válido
+    if not ObjectId.is_valid(cart_item_data.product_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto/combo inválido.")
     
-    # 2. Obtener o crear el carrito del usuario
+    # 2. Intentar buscar como producto primero
+    product_db = await products_collection.find_one({"_id": ObjectId(cart_item_data.product_id)})
+    
+    # 3. Si no es producto, intentar buscar como combo
+    is_combo = False
+    if not product_db:
+        combos_collection = get_collection("combos")
+        combo_db = await combos_collection.find_one({"_id": ObjectId(cart_item_data.product_id), "active": True})
+        
+        if combo_db:
+            is_combo = True
+            logger.info(f"Item {cart_item_data.product_id} identificado como combo: {combo_db['name']}")
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="Producto o combo no encontrado."
+            )
+    
+    # 4. Obtener o crear el carrito del usuario
     cart = await get_user_cart(carts_collection, user_id)
 
-    # 3. Calcular la cantidad total que tendría el producto en el carrito
+    # 5. Calcular la cantidad total que tendría el item en el carrito
     existing_quantity = 0
     for item in cart.items:
         if item.product_id == cart_item_data.product_id:
@@ -93,14 +110,35 @@ async def add_to_cart(
     
     total_quantity = existing_quantity + cart_item_data.quantity
     
-    # 4. Verificar que el stock sea suficiente para la cantidad TOTAL
-    if product_db.get("stock", 0) < total_quantity:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Stock insuficiente para el producto '{product_db['name']}'. Solo quedan {product_db.get('stock', 0)} unidades y ya tienes {existing_quantity} en el carrito."
-        )
+    # 6. Validar stock según el tipo de item
+    if is_combo:
+        # Para combos, validar el stock de cada producto componente
+        for combo_item in combo_db["items"]:
+            product_id = combo_item["product_id"]
+            quantity_per_combo = combo_item["quantity"]
+            total_needed = quantity_per_combo * total_quantity
+            
+            product = await products_collection.find_one({"_id": ObjectId(product_id)})
+            if not product:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Producto {product_id} del combo no encontrado."
+                )
+            
+            if product.get("stock", 0) < total_needed:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Stock insuficiente para '{product['name']}' (parte del combo '{combo_db['name']}'). Disponible: {product.get('stock', 0)}, Necesario: {total_needed}."
+                )
+    else:
+        # Para productos individuales, validar stock directamente
+        if product_db.get("stock", 0) < total_quantity:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Stock insuficiente para el producto '{product_db['name']}'. Solo quedan {product_db.get('stock', 0)} unidades y ya tienes {existing_quantity} en el carrito."
+            )
 
-    # 5. Añadir/actualizar el producto en el carrito
+    # 7. Añadir/actualizar el item en el carrito
     found = False
     for item in cart.items:
         if item.product_id == cart_item_data.product_id:
@@ -111,9 +149,11 @@ async def add_to_cart(
     if not found:
         cart.items.append(cart_item_data)
     
-    # 6. Guardar el carrito actualizado
+    # 8. Guardar el carrito actualizado
     await save_cart(carts_collection, cart)
-    logger.info(f"Usuario {user_id} añadió/actualizó producto {cart_item_data.product_id} en el carrito. Cantidad total: {total_quantity}")
+    
+    item_type = "combo" if is_combo else "producto"
+    logger.info(f"Usuario {user_id} añadió/actualizó {item_type} {cart_item_data.product_id} en el carrito. Cantidad total: {total_quantity}")
     return cart
 
 @router.put("/update", response_model=Cart)
@@ -125,26 +165,61 @@ async def update_cart_item_quantity(
     current_verified_user: TokenData = Depends(get_current_verified_user)
 ):
     """
-    Actualiza la cantidad de un producto específico en el carrito.
-    Si la cantidad es 0, el producto se elimina del carrito.
+    Actualiza la cantidad de un producto o combo específico en el carrito.
+    Si la cantidad es 0, el producto/combo se elimina del carrito.
     Requiere que el usuario haya verificado su mayoría de edad.
     """
-    # 1. Verificar stock si la cantidad es > 0
+    # 1. Validar ID
+    if not ObjectId.is_valid(cart_item_data.product_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto/combo inválido.")
+    
+    # 2. Verificar si es producto o combo y validar stock si la cantidad es > 0
     if cart_item_data.quantity > 0:
         product_db = await products_collection.find_one({"_id": ObjectId(cart_item_data.product_id)})
-        if not product_db:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado.")
         
-        if product_db.get("stock", 0) < cart_item_data.quantity:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Stock insuficiente para el producto '{product_db['name']}'. Solo quedan {product_db.get('stock', 0)} unidades."
-            )
+        # Si no es producto, verificar si es combo
+        is_combo = False
+        if not product_db:
+            combos_collection = get_collection("combos")
+            combo_db = await combos_collection.find_one({"_id": ObjectId(cart_item_data.product_id), "active": True})
             
-    # 2. Obtener el carrito del usuario
+            if combo_db:
+                is_combo = True
+            else:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto o combo no encontrado.")
+        
+        # Validar stock según el tipo
+        if is_combo:
+            # Validar stock de cada producto del combo
+            for combo_item in combo_db["items"]:
+                product_id = combo_item["product_id"]
+                quantity_per_combo = combo_item["quantity"]
+                total_needed = quantity_per_combo * cart_item_data.quantity
+                
+                product = await products_collection.find_one({"_id": ObjectId(product_id)})
+                if not product:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Producto {product_id} del combo no encontrado."
+                    )
+                
+                if product.get("stock", 0) < total_needed:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Stock insuficiente para '{product['name']}' (parte del combo '{combo_db['name']}'). Disponible: {product.get('stock', 0)}, Necesario: {total_needed}."
+                    )
+        else:
+            # Validar stock de producto individual
+            if product_db.get("stock", 0) < cart_item_data.quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Stock insuficiente para el producto '{product_db['name']}'. Solo quedan {product_db.get('stock', 0)} unidades."
+                )
+            
+    # 3. Obtener el carrito del usuario
     cart = await get_user_cart(carts_collection, user_id)
 
-    # 3. Actualizar la cantidad o eliminar
+    # 4. Actualizar la cantidad o eliminar
     updated_items = []
     found = False
     for item in cart.items:
@@ -158,13 +233,13 @@ async def update_cart_item_quantity(
             updated_items.append(item)
     
     if not found:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El producto no está en el carrito.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El producto/combo no está en el carrito.")
 
     cart.items = updated_items
     
-    # 4. Guardar el carrito actualizado
+    # 5. Guardar el carrito actualizado
     await save_cart(carts_collection, cart)
-    logger.info(f"Usuario {user_id} actualizó cantidad de producto {cart_item_data.product_id} a {cart_item_data.quantity} en el carrito.")
+    logger.info(f"Usuario {user_id} actualizó cantidad de item {cart_item_data.product_id} a {cart_item_data.quantity} en el carrito.")
     return cart
 
 @router.delete("/remove/{product_id}", response_model=Cart)
