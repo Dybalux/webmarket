@@ -226,7 +226,7 @@ class Order(BaseModel):
     total_amount: float = Field(..., ge=0)
     status: OrderStatus = OrderStatus.PENDING
     shipping_address: Address
-    shipping_zone: str = Field(..., description="Zona de envío: 'central' o 'remote'")
+    shipping_zone: Optional[str] = Field(default="central", description="Zona de envío: 'central' o 'remote'")
     shipping_cost: float = Field(default=0.0, description="Costo de envío según zona")
     payment_method: Optional[PaymentMethod] = None  # Método de pago seleccionado
     payment_id: Optional[str] = None # ID de la transacción de pago
