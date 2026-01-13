@@ -219,7 +219,17 @@ async def get_admin_orders(
         
         async for order_doc in orders_cursor:
             # Obtener información del usuario
-            user = await users_collection.find_one({"_id": ObjectId(order_doc["user_id"])})
+            user_id_value = order_doc["user_id"]
+            
+            # Intentar buscar primero por el user_id como ObjectId (si es válido)
+            user = None
+            if ObjectId.is_valid(user_id_value):
+                user = await users_collection.find_one({"_id": ObjectId(user_id_value)})
+            
+            # Si no lo encontró como ObjectId, el user_id podría estar como string
+            if not user:
+                user = await users_collection.find_one({"_id": user_id_value})
+                
             user_info = {
                 "username": user.get("username", "Desconocido") if user else "Desconocido",
                 "email": user.get("email", "N/A") if user else "N/A"
