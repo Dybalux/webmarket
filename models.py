@@ -92,6 +92,7 @@ class Product(BaseModel):
     volume_ml: Optional[int] = Field(None, gt=0, description="Volumen del envase en mililitros")
     origin: Optional[str] = Field(None, max_length=50, description="País o región de origen")
     net_price: Optional[float] = Field(None, ge=0, description="Precio de costo o neto del producto", exclude=True)
+    active: bool = Field(default=True, description="Indica si el producto está habilitado para venta")
     
     class Config:
         populate_by_name = True # Permite usar alias en el ID al crear o actualizar

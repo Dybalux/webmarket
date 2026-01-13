@@ -72,6 +72,9 @@ async def read_products(
     """
     query = {}
     
+    # SIEMPRE filtrar solo productos activos en el endpoint público
+    query["active"] = True
+    
     # Filtrar solo productos con stock disponible (a menos que se solicite lo contrario)
     if not include_out_of_stock:
         query["stock"] = {"$gt": 0}
@@ -140,7 +143,7 @@ async def read_product(
     if not ObjectId.is_valid(product_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto inválido.")
 
-    product_db = await products_collection.find_one({"_id": ObjectId(product_id)})
+    product_db = await products_collection.find_one({"_id": ObjectId(product_id), "active": True})
     if product_db:
         product = Product(**product_db)
         # Obtener configuración de precios dinámicos
@@ -211,3 +214,33 @@ async def delete_product(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado para eliminar.")
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.patch("/{product_id}/toggle-active", response_model=AdminProduct)
+async def toggle_product_active(
+    product_id: str,
+    products_collection = Depends(get_products_collection),
+    current_admin_user: TokenData = Depends(get_current_admin_user)
+):
+    """
+    Activa o desactiva un producto (soft delete).
+    Requiere permisos de administrador.
+    """
+    if not ObjectId.is_valid(product_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto inválido.")
+
+    product = await products_collection.find_one({"_id": ObjectId(product_id)})
+    
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado.")
+    
+    # Cambiar el estado actual
+    new_active_state = not product.get("active", True)
+    
+    await products_collection.update_one(
+        {"_id": ObjectId(product_id)},
+        {"$set": {"active": new_active_state}}
+    )
+    
+    updated_product = await products_collection.find_one({"_id": ObjectId(product_id)})
+    return AdminProduct(**updated_product)
