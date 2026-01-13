@@ -3,7 +3,7 @@ from typing import List, Optional
 from bson import ObjectId
 from datetime import datetime, timedelta
 
-from models import Order, UserResponse, OrderStatus, UserRole, TokenData, ShippingSettings
+from models import Order, UserResponse, OrderStatus, UserRole, TokenData, ShippingSettings, BulkPriceUpdate
 from database import get_database, get_collection
 from security import get_current_admin_user
 import logging
@@ -417,4 +417,62 @@ async def update_shipping_settings(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al actualizar la configuración de envíos."
+        )
+
+# --- Gestión Masiva de Precios ---
+
+@router.post("/bulk-price-update", tags=["Admin"])
+async def bulk_price_update(
+    update_data: BulkPriceUpdate,
+    products_collection = Depends(get_products_collection),
+    current_admin_user: TokenData = Depends(get_current_admin_user)
+):
+    """
+    [Admin] Actualiza los precios de venta de forma masiva.
+    - percentage: ej 0.10 para un aumento del 10%.
+    - based_on: 'price' (venta actual) o 'net_price' (costo/neto).
+    - target: 'all' o ID de una categoría específica.
+    """
+    try:
+        query = {}
+        if update_data.target != "all":
+            query["category"] = update_data.target
+
+        # Obtenemos los productos a actualizar
+        cursor = products_collection.find(query)
+        updated_count = 0
+        
+        async for product_doc in cursor:
+            base_value = 0.0
+            
+            if update_data.based_on == "net_price":
+                base_value = product_doc.get("net_price")
+                if base_value is None:
+                    # Si no tiene precio neto, no podemos actualizar basándonos en él
+                    continue
+            else:
+                base_value = product_doc.get("price", 0.0)
+            
+            # Calcular nuevo precio: base * (1 + porcentaje)
+            new_price = round(base_value * (1 + update_data.percentage), 2)
+            
+            # Actualizar en DB
+            await products_collection.update_one(
+                {"_id": product_doc["_id"]},
+                {"$set": {"price": new_price, "updated_at": datetime.utcnow()}}
+            )
+            updated_count += 1
+            
+        logger.info(f"Admin {current_admin_user.username} realizó una actualización masiva de precios. Productos actualizados: {updated_count}")
+        
+        return {
+            "message": f"Se actualizaron {updated_count} productos correctamente.",
+            "updated_count": updated_count
+        }
+        
+    except Exception as e:
+        logger.error(f"Error en actualización masiva de precios: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al procesar la actualización masiva de precios."
         )

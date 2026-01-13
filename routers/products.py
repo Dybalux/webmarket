@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status , Query, Response
 from typing import List, Optional
 from bson import ObjectId
 
-from models import Product, ProductCategory, UserRole, TokenData, PaginationMeta, DynamicPricingSettings
+from models import Product, ProductCategory, UserRole, TokenData, PaginationMeta, DynamicPricingSettings, AdminProduct
 from database import get_database, get_collection
 from security import get_current_admin_user # Importamos la dependencia para admins
 from pricing_helpers import get_adjusted_price
@@ -20,9 +20,9 @@ def get_products_collection():
     return get_collection("products")
 
 #Endpoint para la gestión de productos
-@router.post("/", response_model=Product, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=AdminProduct, status_code=status.HTTP_201_CREATED)
 async def create_product(
-    product: Product,
+    product: AdminProduct,
     products_collection = Depends(get_products_collection),
     # Solo admins pueden crear productos
     current_user: TokenData = Depends(get_current_admin_user)  
@@ -47,9 +47,10 @@ async def create_product(
     # Obtener el producto recién creado para devolver el ID
     created_product = await products_collection.find_one({"_id": result.inserted_id})
     if created_product:
-        return Product.model_validate(created_product)
+        return AdminProduct.model_validate(created_product)
     else:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Producto creado pero no se pudo recuperar.")
+
     
 @router.get("/")
 async def read_products(
@@ -151,10 +152,10 @@ async def read_product(
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado.")
 
 
-@router.put("/{product_id}", response_model=Product)
+@router.put("/{product_id}", response_model=AdminProduct)
 async def update_product(
     product_id: str,
-    product_update: Product, # Usamos Product para recibir todos los campos, Pydantic se encarga de validar
+    product_update: AdminProduct, # Usamos AdminProduct para recibir todos los campos
     products_collection = Depends(get_products_collection),
     # Solo administradores pueden actualizar productos
     current_admin_user: TokenData = Depends(get_current_admin_user)
@@ -185,8 +186,9 @@ async def update_product(
     
     updated_product = await products_collection.find_one({"_id": ObjectId(product_id)})
     if updated_product:
-        return Product(**updated_product)
+        return AdminProduct(**updated_product)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Producto actualizado pero no se pudo recuperar.")
+
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -91,11 +91,16 @@ class Product(BaseModel):
     abv: Optional[float] = Field(None, ge=0, le=100, description="Grado alcohólico por volumen (Alcohol by Volume), 0-100%")
     volume_ml: Optional[int] = Field(None, gt=0, description="Volumen del envase en mililitros")
     origin: Optional[str] = Field(None, max_length=50, description="País o región de origen")
+    net_price: Optional[float] = Field(None, ge=0, description="Precio de costo o neto del producto", exclude=True)
     
     class Config:
         populate_by_name = True # Permite usar alias en el ID al crear o actualizar
         json_encoders = {ObjectId: str}
         arbitrary_types_allowed = True
+
+class AdminProduct(Product):
+    """Versión extendida del producto para administradores que incluye el precio neto"""
+    net_price: Optional[float] = Field(None, ge=0, description="Precio de costo o neto (Visible solo para admin)", exclude=False)
 
 
 # Modelos para Usuarios
@@ -434,5 +439,8 @@ class DynamicPricingUpdate(BaseModel):
     start_hour: int = Field(..., ge=0, le=23)
     end_hour: int = Field(..., ge=0, le=23)
 
-
-
+class BulkPriceUpdate(BaseModel):
+    """Modelo para actualizar precios masivamente"""
+    percentage: float = Field(..., description="Porcentaje de aumento (ej: 0.10 para 10%)")
+    target: str = Field("all", description="Objetivo de la actualización: 'all' o ID de categoría")
+    based_on: str = Field("price", description="Base para el aumento: 'price' (precio venta actual) o 'net_price' (precio costo)")
