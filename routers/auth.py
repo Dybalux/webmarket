@@ -44,7 +44,13 @@ async def create_user_in_db(collection, user_data: UserRegister) -> UserResponse
     # Calcular la edad del usuario automáticamente
     MINIMUM_AGE = 18
     today = datetime.utcnow()
-    age = relativedelta(today, user_data.birth_date).years
+    birth_date = user_data.birth_date
+    
+    # Si la fecha de nacimiento tiene zona horaria (offset-aware), la convertimos a naive para comparar con utcnow()
+    if birth_date.tzinfo is not None:
+        birth_date = birth_date.replace(tzinfo=None)
+    
+    age = relativedelta(today, birth_date).years
     
     # Verificar automáticamente la edad
     age_verified = age >= MINIMUM_AGE

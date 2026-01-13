@@ -52,6 +52,11 @@ async def verify_age(
         )
     
     today = datetime.utcnow()
+    
+    # Asegurar que birth_date sea naive para comparar con utcnow()
+    if birth_date.tzinfo is not None:
+        birth_date = birth_date.replace(tzinfo=None)
+        
     age = relativedelta(today, birth_date).years
     if age < MINIMUM_AGE:
         # Si el usuario es menor de edad, forzamos age_verified a False y respondemos con error
