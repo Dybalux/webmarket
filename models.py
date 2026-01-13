@@ -406,11 +406,14 @@ class ComboDetailed(BaseModel):
     active: bool
     created_at: datetime
     updated_at: datetime
+    total_items_cost: Optional[float] = Field(None, description="Suma del precio de todos los productos individuales")
+    savings: Optional[float] = Field(None, description="Ahorro al comprar el combo (total_items_cost - price)")
     
     class Config:
         populate_by_name = True
         json_encoders = {ObjectId: str}
         arbitrary_types_allowed = True
+
 
 
 # Modelos para Configuración de Precios Dinámicos (Weekend Pricing)

@@ -83,18 +83,25 @@ async def get_active_combos():
                     # Producto no encontrado - skip
                     logger.warning(f"Producto {product_id} del combo {combo['_id']} no encontrado")
             
+            # Calcular el costo total de los productos individuales
+            total_items_cost = sum(item.price * item.quantity for item in enriched_items)
+            combo_price = get_adjusted_price(combo["price"], pricing_settings)
+            savings = round(total_items_cost - combo_price, 2)
+            
             # Crear combo enriquecido
             enriched_combo = ComboDetailed(
                 _id=combo["_id"],
                 name=combo["name"],
                 description=combo.get("description"),
-                price=get_adjusted_price(combo["price"], pricing_settings),
+                price=combo_price,
                 image_url=combo.get("image_url"),
 
                 items=enriched_items,
                 active=combo.get("active", True),
                 created_at=combo.get("created_at"),
-                updated_at=combo.get("updated_at")
+                updated_at=combo.get("updated_at"),
+                total_items_cost=round(total_items_cost, 2),
+                savings=savings
             )
             enriched_combos.append(enriched_combo)
         
