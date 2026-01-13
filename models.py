@@ -406,3 +406,33 @@ class ComboDetailed(BaseModel):
         json_encoders = {ObjectId: str}
         arbitrary_types_allowed = True
 
+
+# Modelos para Configuración de Precios Dinámicos (Weekend Pricing)
+class DynamicPricingSettings(BaseModel):
+    """Configuración para ajuste automático de precios (ej: de viernes a domingo)"""
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    enabled: bool = Field(default=False, description="Activar o desactivar ajuste de precios automático")
+    multiplier: float = Field(default=1.0, description="Multiplicador de precio (ej: 0.9 para 10% de descuento, 1.1 para 10% de aumento)")
+    start_day: int = Field(default=5, ge=1, le=7, description="Día de inicio (1=Lunes, 5=Viernes, 7=Domingo)")
+    end_day: int = Field(default=7, ge=1, le=7, description="Día de fin")
+    start_hour: int = Field(default=20, ge=0, le=23, description="Hora de inicio (0-23)")
+    end_hour: int = Field(default=6, ge=0, le=23, description="Hora de fin (0-23)")
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_by: Optional[str] = None  # user_id del admin que actualizó
+    
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
+        arbitrary_types_allowed = True
+
+class DynamicPricingUpdate(BaseModel):
+    """Modelo para actualizar configuración de precios dinámicos"""
+    enabled: bool
+    multiplier: float = Field(..., gt=0)
+    start_day: int = Field(..., ge=1, le=7)
+    end_day: int = Field(..., ge=1, le=7)
+    start_hour: int = Field(..., ge=0, le=23)
+    end_hour: int = Field(..., ge=0, le=23)
+
+
+

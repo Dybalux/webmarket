@@ -3,9 +3,12 @@ from typing import List, Optional
 from bson import ObjectId
 from datetime import datetime
 
-from models import Combo, ComboCreate, ComboUpdate, ComboDetailed, ComboItemDetailed, TokenData
+from models import Combo, ComboCreate, ComboUpdate, ComboDetailed, ComboItemDetailed, TokenData, DynamicPricingSettings
 from database import get_collection
 from security import get_current_admin_user
+from pricing_helpers import get_adjusted_price
+from routers.pricing_settings import get_pricing_settings_collection
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -34,6 +37,11 @@ async def get_active_combos():
         async for combo_doc in combos_cursor:
             combos_list.append(combo_doc)
         
+        # Obtener configuración de precios dinámicos
+        pricing_settings_collection = get_collection("pricing_settings")
+        pricing_doc = await pricing_settings_collection.find_one({})
+        pricing_settings = DynamicPricingSettings(**pricing_doc) if pricing_doc else DynamicPricingSettings()
+
         if not combos_list:
             return []
         
@@ -80,8 +88,9 @@ async def get_active_combos():
                 _id=combo["_id"],
                 name=combo["name"],
                 description=combo.get("description"),
-                price=combo["price"],
+                price=get_adjusted_price(combo["price"], pricing_settings),
                 image_url=combo.get("image_url"),
+
                 items=enriched_items,
                 active=combo.get("active", True),
                 created_at=combo.get("created_at"),
@@ -123,7 +132,16 @@ async def get_combo_by_id(combo_id: str):
                 detail="Combo no encontrado."
             )
         
-        return Combo(**combo)
+        combo_obj = Combo(**combo)
+        # Obtener configuración de precios dinámicos
+        pricing_settings_collection = get_collection("pricing_settings")
+        pricing_doc = await pricing_settings_collection.find_one({})
+        pricing_settings = DynamicPricingSettings(**pricing_doc) if pricing_doc else DynamicPricingSettings()
+        
+        # Aplicar precio dinámico
+        combo_obj.price = get_adjusted_price(combo_obj.price, pricing_settings)
+        return combo_obj
+
     
     except HTTPException:
         raise
