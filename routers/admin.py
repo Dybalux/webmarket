@@ -334,7 +334,12 @@ async def get_shipping_settings(
             # Crear configuración por defecto
             default_settings = {
                 "central_zone_price": 500.0,
+                "central_zone_description": "Envío a zona céntrica",
                 "remote_zone_price": 1000.0,
+                "remote_zone_description": "Envío a zonas lejanas",
+                "pickup_address": "Dirección no configurada",
+                "pickup_price": 0.0,
+                "pickup_description": "Retiro en persona",
                 "updated_at": datetime.utcnow()
             }
             result = await settings_collection.insert_one(default_settings)
@@ -354,11 +359,15 @@ async def get_shipping_settings(
 @router.put("/shipping-settings", tags=["Admin"])
 async def update_shipping_settings(
     central_zone_price: float = Query(..., gt=0, description="Precio de envío zona céntrica"),
+    central_zone_description: str = Query(..., min_length=1, description="Descripción del envío a zona central"),
     remote_zone_price: float = Query(..., gt=0, description="Precio de envío zonas lejanas"),
+    remote_zone_description: str = Query(..., min_length=1, description="Descripción del envío a zona remota"),
+    pickup_address: str = Query(..., min_length=1, description="Dirección para retiro en persona"),
+    pickup_description: str = Query(..., min_length=1, description="Descripción de la opción de retiro"),
     current_admin_user: TokenData = Depends(get_current_admin_user)
 ):
     """
-    [Admin] Actualiza los precios de envío.
+    [Admin] Actualiza los precios de envío y las descripciones.
     Requiere permisos de administrador.
     """
     try:
@@ -367,7 +376,12 @@ async def update_shipping_settings(
         
         update_data = {
             "central_zone_price": central_zone_price,
+            "central_zone_description": central_zone_description,
             "remote_zone_price": remote_zone_price,
+            "remote_zone_description": remote_zone_description,
+            "pickup_address": pickup_address,
+            "pickup_price": 0.0,  # Siempre gratis
+            "pickup_description": pickup_description,
             "updated_at": datetime.utcnow(),
             "updated_by": current_admin_user.user_id
         }
@@ -383,14 +397,19 @@ async def update_shipping_settings(
             await settings_collection.insert_one(update_data)
         
         logger.info(
-            f"Admin {current_admin_user.username} actualizó precios de envío: "
-            f"Central=${central_zone_price}, Remote=${remote_zone_price}"
+            f"Admin {current_admin_user.username} actualizó configuración de envíos: "
+            f"Central=${central_zone_price}, Remote=${remote_zone_price}, Pickup=GRATIS en '{pickup_address}'"
         )
         
         return {
-            "message": "Precios de envío actualizados correctamente",
+            "message": "Configuración de envíos actualizada correctamente",
             "central_zone_price": central_zone_price,
-            "remote_zone_price": remote_zone_price
+            "central_zone_description": central_zone_description,
+            "remote_zone_price": remote_zone_price,
+            "remote_zone_description": remote_zone_description,
+            "pickup_address": pickup_address,
+            "pickup_price": 0.0,
+            "pickup_description": pickup_description
         }
     
     except Exception as e:

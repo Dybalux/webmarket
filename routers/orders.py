@@ -100,20 +100,53 @@ async def get_shipping_prices():
         
         if not settings:
             return {
-                "central_zone_price": 500.0,
-                "remote_zone_price": 1000.0
+                "central": {
+                    "price": 500.0,
+                    "description": "Envío a zona céntrica"
+                },
+                "remote": {
+                    "price": 1000.0,
+                    "description": "Envío a zonas lejanas"
+                },
+                "pickup": {
+                    "price": 0.0,
+                    "description": "Retiro en persona",
+                    "address": "Dirección no configurada"
+                }
             }
         
         return {
-            "central_zone_price": settings["central_zone_price"],
-            "remote_zone_price": settings["remote_zone_price"]
+            "central": {
+                "price": settings.get("central_zone_price", 500.0),
+                "description": settings.get("central_zone_description", "Envío a zona céntrica")
+            },
+            "remote": {
+                "price": settings.get("remote_zone_price", 1000.0),
+                "description": settings.get("remote_zone_description", "Envío a zonas lejanas")
+            },
+            "pickup": {
+                "price": settings.get("pickup_price", 0.0),
+                "description": settings.get("pickup_description", "Retiro en persona"),
+                "address": settings.get("pickup_address", "Dirección no configurada")
+            }
         }
     except Exception as e:
         logger.error(f"Error al obtener precios de envío: {e}", exc_info=True)
         # Devolver precios por defecto en caso de error
         return {
-            "central_zone_price": 500.0,
-            "remote_zone_price": 1000.0
+            "central": {
+                "price": 500.0,
+                "description": "Envío a zona céntrica"
+            },
+            "remote": {
+                "price": 1000.0,
+                "description": "Envío a zonas lejanas"
+            },
+            "pickup": {
+                "price": 0.0,
+                "description": "Retiro en persona",
+                "address": "Dirección no configurada"
+            }
         }
 
 # Endpoint para crear un pedido
@@ -223,10 +256,10 @@ async def create_order(
             })
 
     # Validar zona de envío
-    if order_data.shipping_zone not in ["central", "remote"]:
+    if order_data.shipping_zone not in ["central", "remote", "pickup"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Zona de envío inválida. Debe ser 'central' o 'remote'."
+            detail="Zona de envío inválida. Debe ser 'central', 'remote' o 'pickup'."
         )
     
     # Obtener precio de envío según zona
@@ -235,8 +268,10 @@ async def create_order(
     
     if order_data.shipping_zone == "central":
         shipping_cost = settings.get("central_zone_price", 500.0) if settings else 500.0
-    else:  # remote
+    elif order_data.shipping_zone == "remote":
         shipping_cost = settings.get("remote_zone_price", 1000.0) if settings else 1000.0
+    else:  # pickup
+        shipping_cost = 0.0  # Envío gratis para retiro en persona
     
     # Calcular total incluyendo envío
     total_with_shipping = total_amount + shipping_cost

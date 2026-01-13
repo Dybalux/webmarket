@@ -240,7 +240,7 @@ class Address(BaseModel):
 class OrderCreate(BaseModel):
     items: List[CartItem] # Usamos CartItem para la creación, luego se convierte a OrderItem
     shipping_address: Address
-    shipping_zone: str = Field(..., description="Zona de envío: 'central' o 'remote'")
+    shipping_zone: str = Field(..., description="Zona de envío: 'central', 'remote' o 'pickup'")
     # payment_method_id: str # ID del método de pago o de la pasarela si fuera necesario aquí
 
 class Order(BaseModel):
@@ -250,7 +250,7 @@ class Order(BaseModel):
     total_amount: float = Field(..., ge=0)
     status: OrderStatus = OrderStatus.PENDING
     shipping_address: Address
-    shipping_zone: Optional[str] = Field(default="central", description="Zona de envío: 'central' o 'remote'")
+    shipping_zone: Optional[str] = Field(default="central", description="Zona de envío: 'central', 'remote' o 'pickup'")
     shipping_cost: float = Field(default=0.0, description="Costo de envío según zona")
     payment_method: Optional[PaymentMethod] = None  # Método de pago seleccionado
     payment_id: Optional[str] = None # ID de la transacción de pago
@@ -324,7 +324,12 @@ class ShippingSettings(BaseModel):
     """Configuración de precios de envío por zona"""
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
     central_zone_price: float = Field(default=500.0, description="Precio de envío zona céntrica")
+    central_zone_description: str = Field(default="Envío a zona céntrica", description="Descripción del envío a zona central")
     remote_zone_price: float = Field(default=1000.0, description="Precio de envío zonas lejanas")
+    remote_zone_description: str = Field(default="Envío a zonas lejanas", description="Descripción del envío a zona remota")
+    pickup_address: str = Field(default="", description="Dirección para retiro en persona")
+    pickup_price: float = Field(default=0.0, description="Precio de retiro en persona (gratis)")
+    pickup_description: str = Field(default="Retiro en persona", description="Descripción de la opción de retiro")
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     updated_by: Optional[str] = None  # user_id del admin que actualizó
     
