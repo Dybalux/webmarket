@@ -105,7 +105,7 @@ async def verify_age(
     
 #Puedes añadir un endpoint para obtener la edad mínima si el frontend lo necesita
 
-@router.get("/minimun-age", response_model=dict)
+@router.get("/minimum-age", response_model=dict)
 async def get_minimum_age():
     """
     Retorna la edad mínima requerida para la compra de bebidas alcohólicas.

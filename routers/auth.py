@@ -5,6 +5,7 @@ from datetime import timedelta, datetime
 from typing import Annotated
 from pymongo.errors import DuplicateKeyError
 from bson import ObjectId # Para manejar los IDs de MongoDB
+from dateutil.relativedelta import relativedelta
 
 from models import UserRegister, UserLogin, UserResponse, Token, TokenResponse, RefreshToken, UserRole, TokenData
 from security import get_password_hash, verify_password, create_access_token, create_refresh_token, hash_token, verify_refresh_token, get_current_user_token_data
@@ -40,12 +41,21 @@ async def create_user_in_db(collection, user_data: UserRegister) -> UserResponse
     """Crea un nuevo usuario en la base de datos."""
     hashed_password = get_password_hash(user_data.password)
     
+    # Calcular la edad del usuario automáticamente
+    MINIMUM_AGE = 18
+    today = datetime.utcnow()
+    age = relativedelta(today, user_data.birth_date).years
+    
+    # Verificar automáticamente la edad
+    age_verified = age >= MINIMUM_AGE
+    
     # Preparamos el usuario para insertar
     user_dict = user_data.model_dump(exclude={"password", "birth_date"}) # Excluimos password, birth_date por ahora del dump directo
     user_dict["hashed_password"] = hashed_password
     user_dict["birth_date"] = user_data.birth_date # Guardamos la fecha de nacimiento para verificación
     user_dict["role"] = UserRole.CUSTOMER.value # Por defecto, todos son clientes
-    user_dict["age_verified"] = False # Inicialmente no verificado
+    user_dict["age_verified"] = age_verified # Se verifica automáticamente si tiene 18+ años
+    user_dict["created_at"] = datetime.utcnow()
 
     try:
         result = await collection.insert_one(user_dict)
@@ -55,6 +65,7 @@ async def create_user_in_db(collection, user_data: UserRegister) -> UserResponse
         # Recuperar el usuario insertado para devolver un UserResponse completo
         inserted_user = await collection.find_one({"_id": result.inserted_id})
         if inserted_user:
+            logger.info(f"Usuario {inserted_user['username']} registrado con age_verified={age_verified} (edad: {age} años)")
             return UserResponse(**inserted_user)
         else:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Usuario creado pero no se pudo recuperar.")
