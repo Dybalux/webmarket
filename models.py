@@ -309,6 +309,7 @@ class PaymentSettings(BaseModel):
     transfer_alias: str = Field(..., description="Alias bancario para transferencias")
     transfer_whatsapp: str = Field(..., description="Número de WhatsApp para comprobantes")
     instagram_url: Optional[str] = Field(None, description="URL de Instagram del negocio")
+    facebook_url: Optional[str] = Field(None, description="URL de Facebook del negocio")
     email: Optional[str] = Field(None, description="Email de contacto del negocio")
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     updated_by: Optional[str] = None  # user_id del admin que actualizó
@@ -323,6 +324,7 @@ class PaymentSettingsUpdate(BaseModel):
     transfer_alias: str = Field(..., min_length=3, max_length=100, description="Alias bancario")
     transfer_whatsapp: str = Field(..., pattern=r"^\+?[0-9]{10,15}$", description="Número de WhatsApp (10-15 dígitos)")
     instagram_url: Optional[str] = Field(None, max_length=200, description="URL de Instagram")
+    facebook_url: Optional[str] = Field(None, max_length=200, description="URL de Facebook")
     email: Optional[str] = Field(None, description="Email de contacto")
 
 # Modelos para Configuración de Envíos

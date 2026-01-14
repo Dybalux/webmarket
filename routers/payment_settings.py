@@ -34,6 +34,7 @@ async def get_payment_settings_public(
                 transfer_alias="ESCABI.API.MP",
                 transfer_whatsapp="+5491112345678",
                 instagram_url=None,
+                facebook_url=None,
                 email=None,
                 updated_at=datetime.utcnow()
             )
@@ -98,6 +99,7 @@ async def update_payment_settings(
             "transfer_alias": settings_update.transfer_alias,
             "transfer_whatsapp": settings_update.transfer_whatsapp,
             "instagram_url": settings_update.instagram_url,
+            "facebook_url": settings_update.facebook_url,
             "email": settings_update.email,
             "updated_at": datetime.utcnow(),
             "updated_by": current_admin_user.user_id
@@ -112,7 +114,7 @@ async def update_payment_settings(
             logger.info(
                 f"Admin {current_admin_user.username} actualizó la configuración. "
                 f"Alias: {settings_update.transfer_alias}, WhatsApp: {settings_update.transfer_whatsapp}, "
-                f"Instagram: {settings_update.instagram_url}, Email: {settings_update.email}"
+                f"Instagram: {settings_update.instagram_url}, Facebook: {settings_update.facebook_url}, Email: {settings_update.email}"
             )
             
             # Obtener configuración actualizada
@@ -127,7 +129,7 @@ async def update_payment_settings(
             logger.info(
                 f"Admin {current_admin_user.username} creó la configuración. "
                 f"Alias: {settings_update.transfer_alias}, WhatsApp: {settings_update.transfer_whatsapp}, "
-                f"Instagram: {settings_update.instagram_url}, Email: {settings_update.email}"
+                f"Instagram: {settings_update.instagram_url}, Facebook: {settings_update.facebook_url}, Email: {settings_update.email}"
             )
             
             # Obtener configuración creada
