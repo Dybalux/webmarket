@@ -162,33 +162,98 @@ async def get_combo_by_id(combo_id: str):
 
 # --- Endpoints de Administrador ---
 
-@router.get("/admin/all", response_model=List[Combo], tags=["Admin"])
+@router.get("/admin/all", response_model=List[ComboDetailed], tags=["Admin"])
 async def get_all_combos_admin(
     current_admin_user: TokenData = Depends(get_current_admin_user),
     include_inactive: bool = Query(False, description="Incluir combos inactivos")
 ):
     """
-    [Admin] Obtiene todos los combos (activos e inactivos).
-    Requiere permisos de administrador.
+    [Admin] Obtiene todos los combos (activos e inactivos) con información detallada.
+    Incluye nombres de productos, cálculo de costos y ahorros.
     """
     try:
         combos_collection = get_collection("combos")
+        products_collection = get_collection("products")
         
         query = {} if include_inactive else {"active": True}
         combos_cursor = combos_collection.find(query).sort("created_at", -1)
+        
         combos_list = []
+        async for combo in combos_cursor:
+            combos_list.append(combo)
+            
+        if not combos_list:
+            return []
+
+        # 1. Obtener todos los IDs de productos requeridos para hacer una sola consulta (Optimización)
+        all_product_ids = set()
+        for combo in combos_list:
+            for item in combo.get("items", []):
+                # Asegurar que sea ObjectId
+                try:
+                    pid = item["product_id"]
+                    if isinstance(pid, str):
+                        all_product_ids.add(ObjectId(pid))
+                    else:
+                        all_product_ids.add(pid)
+                except:
+                    continue
         
-        async for combo_doc in combos_cursor:
-            combos_list.append(Combo(**combo_doc))
+        # 2. Buscar productos en DB
+        products_cursor = products_collection.find(
+            {"_id": {"$in": list(all_product_ids)}},
+            {"name": 1, "price": 1, "image_url": 1, "stock": 1}
+        )
+        products_dict = {str(p["_id"]): p async for p in products_cursor}
         
-        logger.info(f"Admin {current_admin_user.username} obtuvo {len(combos_list)} combos.")
-        return combos_list
+        # 3. Construir respuesta enriquecida
+        enriched_combos = []
+        
+        for combo in combos_list:
+            enriched_items = []
+            
+            # Enriquecer items
+            for item in combo.get("items", []):
+                pid_str = str(item["product_id"])
+                
+                if pid_str in products_dict:
+                    prod_data = products_dict[pid_str]
+                    enriched_items.append(ComboItemDetailed(
+                        product_id=pid_str,
+                        quantity=item["quantity"],
+                        name=prod_data.get("name", "Producto Desconocido"),
+                        price=prod_data.get("price", 0.0),
+                        image_url=prod_data.get("image_url"),
+                        stock=prod_data.get("stock", 0)
+                    ))
+            
+            # Calcular totales (Usamos el precio base del combo para Admin, sin precios dinámicos temporales)
+            total_items_cost = sum(item.price * item.quantity for item in enriched_items)
+            combo_base_price = combo["price"]
+            savings = round(total_items_cost - combo_base_price, 2)
+            
+            enriched_combos.append(ComboDetailed(
+                _id=combo["_id"],
+                name=combo["name"],
+                description=combo.get("description"),
+                price=combo_base_price,
+                image_url=combo.get("image_url"),
+                items=enriched_items,
+                active=combo.get("active", True),
+                created_at=combo.get("created_at"),
+                updated_at=combo.get("updated_at"),
+                total_items_cost=round(total_items_cost, 2),
+                savings=savings
+            ))
+            
+        logger.info(f"Admin {current_admin_user.username} consultó combos detallados.")
+        return enriched_combos
     
     except Exception as e:
-        logger.error(f"Error al obtener combos (admin): {e}", exc_info=True)
+        logger.error(f"Error al obtener combos admin: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener los combos."
+            detail="Error al obtener la lista de combos."
         )
 
 
