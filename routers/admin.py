@@ -343,13 +343,19 @@ async def get_shipping_settings(
         if not settings:
             # Crear configuración por defecto
             default_settings = {
-                "central_zone_price": 500.0,
-                "central_zone_description": "Envío a zona céntrica",
+                # Zona Central
+                "central_zone_enabled": True,
+                "central_zone_price": 0.0,  # GRATIS para zona céntrica
+                "central_zone_description": "🎁 ENVÍO GRATIS - Zona Céntrica de Santa María (centro y barrios aledaños)",
+                # Zona Remota
+                "remote_zone_enabled": True,
                 "remote_zone_price": 1000.0,
-                "remote_zone_description": "Envío a zonas lejanas",
-                "pickup_address": "Dirección no configurada",
+                "remote_zone_description": "🚛 Envío a Zonas Alejadas - Barrios periféricos y localidades cercanas",
+                # Retiro en Persona
+                "pickup_enabled": True,
+                "pickup_address": "Configurar dirección en panel de administración",
                 "pickup_price": 0.0,
-                "pickup_description": "Retiro en persona",
+                "pickup_description": "🏪 Retiro en Persona - GRATIS en nuestro local",
                 "updated_at": datetime.utcnow()
             }
             result = await settings_collection.insert_one(default_settings)
@@ -368,16 +374,22 @@ async def get_shipping_settings(
 
 @router.put("/shipping-settings", tags=["Admin"])
 async def update_shipping_settings(
-    central_zone_price: float = Query(..., gt=0, description="Precio de envío zona céntrica"),
+    # Zona Central
+    central_zone_enabled: bool = Query(True, description="Habilitar envío a zona céntrica"),
+    central_zone_price: float = Query(..., ge=0, description="Precio de envío zona céntrica"),
     central_zone_description: str = Query(..., min_length=1, description="Descripción del envío a zona central"),
+    # Zona Remota
+    remote_zone_enabled: bool = Query(True, description="Habilitar envío a zonas alejadas"),
     remote_zone_price: float = Query(..., gt=0, description="Precio de envío zonas lejanas"),
     remote_zone_description: str = Query(..., min_length=1, description="Descripción del envío a zona remota"),
+    # Retiro en Persona
+    pickup_enabled: bool = Query(True, description="Habilitar retiro en persona"),
     pickup_address: str = Query(..., min_length=1, description="Dirección para retiro en persona"),
     pickup_description: str = Query(..., min_length=1, description="Descripción de la opción de retiro"),
     current_admin_user: TokenData = Depends(get_current_admin_user)
 ):
     """
-    [Admin] Actualiza los precios de envío y las descripciones.
+    [Admin] Actualiza los precios de envío, las descripciones y habilita/deshabilita opciones.
     Requiere permisos de administrador.
     """
     try:
@@ -385,13 +397,20 @@ async def update_shipping_settings(
         settings = await settings_collection.find_one({})
         
         update_data = {
+            # Zona Central
+            "central_zone_enabled": central_zone_enabled,
             "central_zone_price": central_zone_price,
             "central_zone_description": central_zone_description,
+            # Zona Remota
+            "remote_zone_enabled": remote_zone_enabled,
             "remote_zone_price": remote_zone_price,
             "remote_zone_description": remote_zone_description,
+            # Retiro en Persona
+            "pickup_enabled": pickup_enabled,
             "pickup_address": pickup_address,
             "pickup_price": 0.0,  # Siempre gratis
             "pickup_description": pickup_description,
+            # Metadata
             "updated_at": datetime.utcnow(),
             "updated_by": current_admin_user.user_id
         }
@@ -406,17 +425,28 @@ async def update_shipping_settings(
             # Crear nuevo
             await settings_collection.insert_one(update_data)
         
+        enabled_zones = []
+        if central_zone_enabled:
+            enabled_zones.append(f"Central=${central_zone_price}")
+        if remote_zone_enabled:
+            enabled_zones.append(f"Remote=${remote_zone_price}")
+        if pickup_enabled:
+            enabled_zones.append(f"Pickup=GRATIS")
+        
         logger.info(
-            f"Admin {current_admin_user.username} actualizó configuración de envíos: "
-            f"Central=${central_zone_price}, Remote=${remote_zone_price}, Pickup=GRATIS en '{pickup_address}'"
+            f"Admin {current_admin_user.username} actualizó configuración de envíos. "
+            f"Habilitadas: {', '.join(enabled_zones) if enabled_zones else 'Ninguna'}"
         )
         
         return {
             "message": "Configuración de envíos actualizada correctamente",
+            "central_zone_enabled": central_zone_enabled,
             "central_zone_price": central_zone_price,
             "central_zone_description": central_zone_description,
+            "remote_zone_enabled": remote_zone_enabled,
             "remote_zone_price": remote_zone_price,
             "remote_zone_description": remote_zone_description,
+            "pickup_enabled": pickup_enabled,
             "pickup_address": pickup_address,
             "pickup_price": 0.0,
             "pickup_description": pickup_description

@@ -94,59 +94,81 @@ async def process_combo_item(combo_id: str, quantity: int, products_collection):
 
 @router.get("/shipping-prices")
 async def get_shipping_prices():
-    """Endpoint público para obtener precios de envío"""
+    """Endpoint público para obtener precios de envío (solo opciones habilitadas)"""
     try:
         settings_collection = get_collection("shipping_settings")
         settings = await settings_collection.find_one({})
         
         if not settings:
+            # Retornar configuración por defecto (todas habilitadas)
             return {
                 "central": {
-                    "price": 500.0,
-                    "description": "Envío a zona céntrica"
+                    "price": 0.0,
+                    "description": "🎁 ENVÍO GRATIS - Zona Céntrica de Santa María",
+                    "enabled": True
                 },
                 "remote": {
                     "price": 1000.0,
-                    "description": "Envío a zonas lejanas"
+                    "description": "🚛 Envío a Zonas Alejadas",
+                    "enabled": True
                 },
                 "pickup": {
                     "price": 0.0,
-                    "description": "Retiro en persona",
-                    "address": "Dirección no configurada"
+                    "description": "🏪 Retiro en Persona - GRATIS",
+                    "address": "Configurar dirección en panel de administración",
+                    "enabled": True
                 }
             }
         
-        return {
-            "central": {
-                "price": settings.get("central_zone_price", 500.0),
-                "description": settings.get("central_zone_description", "Envío a zona céntrica")
-            },
-            "remote": {
-                "price": settings.get("remote_zone_price", 1000.0),
-                "description": settings.get("remote_zone_description", "Envío a zonas lejanas")
-            },
-            "pickup": {
-                "price": settings.get("pickup_price", 0.0),
-                "description": settings.get("pickup_description", "Retiro en persona"),
-                "address": settings.get("pickup_address", "Dirección no configurada")
+        # Construir respuesta solo con opciones habilitadas
+        response = {}
+        
+        # Zona Central
+        if settings.get("central_zone_enabled", True):
+            response["central"] = {
+                "price": settings.get("central_zone_price", 0.0),
+                "description": settings.get("central_zone_description", "🎁 ENVÍO GRATIS - Zona Céntrica de Santa María"),
+                "enabled": True
             }
-        }
+        
+        # Zona Remota
+        if settings.get("remote_zone_enabled", True):
+            response["remote"] = {
+                "price": settings.get("remote_zone_price", 1000.0),
+                "description": settings.get("remote_zone_description", "🚛 Envío a Zonas Alejadas"),
+                "enabled": True
+            }
+        
+        # Retiro en Persona
+        if settings.get("pickup_enabled", True):
+            response["pickup"] = {
+                "price": settings.get("pickup_price", 0.0),
+                "description": settings.get("pickup_description", "🏪 Retiro en Persona - GRATIS"),
+                "address": settings.get("pickup_address", "Configurar dirección en panel de administración"),
+                "enabled": True
+            }
+        
+        return response
+        
     except Exception as e:
         logger.error(f"Error al obtener precios de envío: {e}", exc_info=True)
-        # Devolver precios por defecto en caso de error
+        # Devolver configuración por defecto en caso de error (todas habilitadas)
         return {
             "central": {
-                "price": 500.0,
-                "description": "Envío a zona céntrica"
+                "price": 0.0,
+                "description": "🎁 ENVÍO GRATIS - Zona Céntrica de Santa María",
+                "enabled": True
             },
             "remote": {
                 "price": 1000.0,
-                "description": "Envío a zonas lejanas"
+                "description": "🚛 Envío a Zonas Alejadas",
+                "enabled": True
             },
             "pickup": {
                 "price": 0.0,
-                "description": "Retiro en persona",
-                "address": "Dirección no configurada"
+                "description": "🏪 Retiro en Persona - GRATIS",
+                "address": "Configurar dirección en panel de administración",
+                "enabled": True
             }
         }
 
@@ -269,12 +291,32 @@ async def create_order(
             detail="Zona de envío inválida. Debe ser 'central', 'remote' o 'pickup'."
         )
     
-    # Obtener precio de envío según zona
+    # Obtener configuración de envíos y validar que la zona esté habilitada
     settings_collection = get_collection("shipping_settings")
     settings = await settings_collection.find_one({})
     
+    # Validar que la zona seleccionada esté habilitada
+    if settings:
+        zone_enabled_map = {
+            "central": settings.get("central_zone_enabled", True),
+            "remote": settings.get("remote_zone_enabled", True),
+            "pickup": settings.get("pickup_enabled", True)
+        }
+        
+        if not zone_enabled_map.get(order_data.shipping_zone, True):
+            zone_names = {
+                "central": "Envío a zona céntrica",
+                "remote": "Envío a zonas alejadas",
+                "pickup": "Retiro en persona"
+            }
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{zone_names[order_data.shipping_zone]} no está disponible actualmente. Por favor, selecciona otra opción de envío."
+            )
+    
+    # Calcular precio de envío según zona
     if order_data.shipping_zone == "central":
-        shipping_cost = settings.get("central_zone_price", 500.0) if settings else 500.0
+        shipping_cost = settings.get("central_zone_price", 0.0) if settings else 0.0
     elif order_data.shipping_zone == "remote":
         shipping_cost = settings.get("remote_zone_price", 1000.0) if settings else 1000.0
     else:  # pickup

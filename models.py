@@ -331,13 +331,24 @@ class PaymentSettingsUpdate(BaseModel):
 class ShippingSettings(BaseModel):
     """Configuración de precios de envío por zona"""
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
-    central_zone_price: float = Field(default=500.0, description="Precio de envío zona céntrica")
-    central_zone_description: str = Field(default="Envío a zona céntrica", description="Descripción del envío a zona central")
+    
+    # Zona Central
+    central_zone_enabled: bool = Field(default=True, description="Habilitar/deshabilitar envío a zona céntrica")
+    central_zone_price: float = Field(default=0.0, description="Precio de envío zona céntrica (GRATIS)")
+    central_zone_description: str = Field(default="🎁 ENVÍO GRATIS - Zona Céntrica de Santa María", description="Descripción del envío a zona central")
+    
+    # Zona Remota
+    remote_zone_enabled: bool = Field(default=True, description="Habilitar/deshabilitar envío a zonas alejadas")
     remote_zone_price: float = Field(default=1000.0, description="Precio de envío zonas lejanas")
-    remote_zone_description: str = Field(default="Envío a zonas lejanas", description="Descripción del envío a zona remota")
+    remote_zone_description: str = Field(default="🚛 Envío a Zonas Alejadas", description="Descripción del envío a zona remota")
+    
+    # Retiro en Persona
+    pickup_enabled: bool = Field(default=True, description="Habilitar/deshabilitar retiro en persona")
     pickup_address: str = Field(default="", description="Dirección para retiro en persona")
     pickup_price: float = Field(default=0.0, description="Precio de retiro en persona (gratis)")
-    pickup_description: str = Field(default="Retiro en persona", description="Descripción de la opción de retiro")
+    pickup_description: str = Field(default="🏪 Retiro en Persona - GRATIS", description="Descripción de la opción de retiro")
+    
+    # Metadata
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     updated_by: Optional[str] = None  # user_id del admin que actualizó
     
