@@ -380,7 +380,7 @@ async def update_shipping_settings(
     central_zone_description: str = Query(..., min_length=1, description="Descripción del envío a zona central"),
     # Zona Remota
     remote_zone_enabled: bool = Query(True, description="Habilitar envío a zonas alejadas"),
-    remote_zone_price: float = Query(..., gt=0, description="Precio de envío zonas lejanas"),
+    remote_zone_price: float = Query(..., ge=0, description="Precio de envío zonas lejanas"),
     remote_zone_description: str = Query(..., min_length=1, description="Descripción del envío a zona remota"),
     # Retiro en Persona
     pickup_enabled: bool = Query(True, description="Habilitar retiro en persona"),
