@@ -314,9 +314,23 @@ async def create_order(
                 detail=f"{zone_names[order_data.shipping_zone]} no está disponible actualmente. Por favor, selecciona otra opción de envío."
             )
     
+    # Calcular totales para lógica de envío condicional
+    total_items_count = sum(item.quantity for item in cart.items)
+    has_combo = any(item.name.endswith("(Combo)") for item in order_items) # Detectado en base a los order_items procesados
+    
     # Calcular precio de envío según zona
     if order_data.shipping_zone == "central":
-        shipping_cost = settings.get("central_zone_price", 0.0) if settings else 0.0
+        base_price = settings.get("central_zone_price", 0.0) if settings else 0.0
+        
+        # Lógica de Envío Gratis Condicional:
+        # 1. Si hay 2 o más productos en total
+        # 2. O si hay al menos un combo
+        if total_items_count >= 2 or has_combo:
+            shipping_cost = 0.0
+            logger.info(f"Envío GRATIS aplicado para zona céntrica (Items: {total_items_count}, Tiene Combo: {has_combo})")
+        else:
+            shipping_cost = base_price
+            
     elif order_data.shipping_zone == "remote":
         shipping_cost = settings.get("remote_zone_price", 1000.0) if settings else 1000.0
     else:  # pickup
