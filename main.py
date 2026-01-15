@@ -81,6 +81,57 @@ app.add_middleware(
     allow_headers=["*"],    # Permite todos los encabezados
 )
 
+# --- MIDDLEWARE DE MODO MANTENIMIENTO ---
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+class MaintenanceModeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # 1. Lista blanca de rutas que SIEMPRE funcionan (admin, auth, docs, etc.)
+        allowed_paths = [
+            "/admin", "/auth", "/docs", "/redoc", "/openapi.json", 
+            "/health", "/system-status", "/static", "/favicon.ico"
+        ]
+        
+        # Permitir si la ruta comienza con algo de la lista blanca
+        if any(request.url.path.startswith(path) for path in allowed_paths):
+            return await call_next(request)
+
+        # 2. Permitir solicitudes OPTIONS (CORS preflight)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        try:
+            # 3. Consultar estado en DB
+            # Importamos aquí dentro para evitar referencias circulares si database.py importa main
+            database = await get_database()
+            settings_collection = database["system_settings"]
+            settings = await settings_collection.find_one({})
+
+            if settings and settings.get("maintenance_mode", False):
+                # MODO MANTENIMIENTO ACTIVO 🛑
+                
+                # Opcional: Permitir acceso si tiene un Header especial o Token de Admin
+                # (Para simplificar, asumimos que los admins entran por /admin o /auth)
+                
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "detail": "El sitio se encuentra actualmente en mantenimiento.",
+                        "message": settings.get("maintenance_message", "Volvemos pronto.")
+                    }
+                )
+
+        except Exception as e:
+            logger.error(f"Error en Maintenance Middleware: {e}")
+            # En caso de error de DB, permitimos el paso para no bloquear el sitio por un error técnico
+            pass
+
+        return await call_next(request)
+
+app.add_middleware(MaintenanceModeMiddleware)
+
 # Rutas principales
 
 # Health Check Endpoint
@@ -134,6 +185,29 @@ async def health_check():
         logger.warning(f"Health check - Redis no disponible: {e}")
     
     return health_status
+
+# --- Endpoint Público de Estado del Sistema ---
+from models import SystemSettings
+
+@app.get("/system-status", tags=["System"])
+async def get_system_status():
+    """
+    Endpoint público para verificar si el sitio está en mantenimiento.
+    """
+    try:
+        settings_collection = get_collection("system_settings")
+        settings = await settings_collection.find_one({})
+        
+        if settings:
+            return {
+                "maintenance_mode": settings.get("maintenance_mode", False),
+                "message": settings.get("maintenance_message", "Estamos en mantenimiento.")
+            }
+        
+        return {"maintenance_mode": False, "message": ""}
+    except Exception as e:
+        logger.error(f"Error checking system status: {e}")
+        return {"maintenance_mode": False, "message": ""}
 
 # Montar rutas
 app.include_router(products.router, prefix="/products", tags=["Productos"])

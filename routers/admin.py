@@ -3,7 +3,7 @@ from typing import List, Optional
 from bson import ObjectId
 from datetime import datetime, timedelta
 
-from models import Order, UserResponse, OrderStatus, UserRole, TokenData, ShippingSettings, BulkPriceUpdate
+from models import Order, UserResponse, OrderStatus, UserRole, TokenData, ShippingSettings, BulkPriceUpdate, SystemSettings
 from database import get_database, get_collection
 from security import get_current_admin_user
 import logging
@@ -515,4 +515,82 @@ async def bulk_price_update(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al procesar la actualización masiva de precios."
+        )
+
+
+# --- Endpoints de Configuración del Sistema (Modo Mantenimiento) ---
+
+@router.get("/system-settings", response_model=SystemSettings, tags=["Admin"])
+async def get_system_settings(
+    current_admin_user: TokenData = Depends(get_current_admin_user)
+):
+    """
+    [Admin] Obtiene la configuración global del sistema.
+    """
+    try:
+        settings_collection = get_collection("system_settings")
+        settings = await settings_collection.find_one({})
+        
+        if not settings:
+            default_settings = {
+                "maintenance_mode": False,
+                "maintenance_message": "Estamos realizando mejoras. Volvemos pronto.",
+                "allowed_ips": [],
+                "updated_at": datetime.utcnow()
+            }
+            result = await settings_collection.insert_one(default_settings)
+            settings = await settings_collection.find_one({"_id": result.inserted_id})
+            
+        return SystemSettings(**settings)
+        
+    except Exception as e:
+        logger.error(f"Error al obtener system settings: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al obtener la configuración del sistema."
+        )
+
+@router.put("/system-settings", tags=["Admin"])
+async def update_system_settings(
+    maintenance_mode: bool = Query(..., description="Activar/Desactivar modo mantenimiento"),
+    maintenance_message: str = Query(..., min_length=1, description="Mensaje para el usuario"),
+    allowed_ips: List[str] = Query([], description="Lista de IPs permitidas"),
+    current_admin_user: TokenData = Depends(get_current_admin_user)
+):
+    """
+    [Admin] Actualiza la configuración global del sistema (ej: Modo Mantenimiento).
+    """
+    try:
+        settings_collection = get_collection("system_settings")
+        settings = await settings_collection.find_one({})
+        
+        update_data = {
+            "maintenance_mode": maintenance_mode,
+            "maintenance_message": maintenance_message,
+            "allowed_ips": allowed_ips,
+            "updated_at": datetime.utcnow(),
+            "updated_by": current_admin_user.user_id
+        }
+        
+        if settings:
+            await settings_collection.update_one(
+                {"_id": settings["_id"]},
+                {"$set": update_data}
+            )
+        else:
+            await settings_collection.insert_one(update_data)
+            
+        logger.info(f"Admin {current_admin_user.username} actualizó SYSTEM SETTINGS (Mantenimiento: {maintenance_mode})")
+        
+        return {
+            "message": "Configuración del sistema actualizada correctamente",
+            "maintenance_mode": maintenance_mode,
+            "maintenance_message": maintenance_message
+        }
+        
+    except Exception as e:
+        logger.error(f"Error al actualizar system settings: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al actualizar la configuración del sistema."
         )

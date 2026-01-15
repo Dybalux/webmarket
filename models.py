@@ -461,3 +461,19 @@ class BulkPriceUpdate(BaseModel):
     percentage: float = Field(..., description="Porcentaje de aumento (ej: 0.10 para 10%)")
     target: str = Field("all", description="Objetivo de la actualización: 'all' o ID de categoría")
     based_on: str = Field("price", description="Base para el aumento: 'price' (precio venta actual) o 'net_price' (precio costo)")
+
+
+# Modelos para Configuración del Sistema (Modo Mantenimiento)
+class SystemSettings(BaseModel):
+    """Configuración global del sistema (ej: Modo Mantenimiento)"""
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    maintenance_mode: bool = Field(default=False, description="Activar o desactivar modo mantenimiento")
+    maintenance_message: str = Field(default="Estamos realizando mejoras. Volvemos pronto.", description="Mensaje para mostrar al usuario")
+    allowed_ips: List[str] = Field(default=[], description="Lista de IPs permitidas durante mantenimiento (opcional)")
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_by: Optional[str] = None
+    
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
+        arbitrary_types_allowed = True
