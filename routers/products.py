@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status , Query, Response
 from typing import List, Optional
 from bson import ObjectId
 
-from models import Product, ProductCategory, UserRole, TokenData, PaginationMeta, DynamicPricingSettings, AdminProduct
+from models import Product, ProductCategory, UserRole, TokenData, PaginationMeta, DynamicPricingSettings, AdminProduct, ProductUpdate
 from database import get_database, get_collection
 from security import get_current_admin_user # Importamos la dependencia para admins
 from pricing_helpers import get_adjusted_price
@@ -158,39 +158,63 @@ async def read_product(
 @router.put("/{product_id}", response_model=AdminProduct)
 async def update_product(
     product_id: str,
-    product_update: AdminProduct, # Usamos AdminProduct para recibir todos los campos
+    product_update: ProductUpdate, # Usamos ProductUpdate para permitir campos opcionales y porcentaje de ganancia
     products_collection = Depends(get_products_collection),
     # Solo administradores pueden actualizar productos
     current_admin_user: TokenData = Depends(get_current_admin_user)
 ):
     """
     Actualiza la información de un producto existente.
+    Soporta cálculo automático de precio si se envía 'profit_percentage'.
     Requiere permisos de administrador.
     """
     if not ObjectId.is_valid(product_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto inválido.")
 
-    # Convertir el modelo Pydantic a un diccionario, excluyendo el ID y campos no seteados
-    update_data = product_update.model_dump(exclude_unset=True, by_alias=False)
-    
-    # No permitir cambiar el ID
-    if "_id" in update_data:
-        del update_data["_id"]
-    if "id" in update_data:
-        del update_data["id"]
+    # 1. Obtener producto actual para cálculos o validación
+    current_product = await products_collection.find_one({"_id": ObjectId(product_id)})
+    if not current_product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado.")
 
+    # 2. Convertir el modelo Pydantic a un diccionario, excluyendo campos no seteados
+    update_data = product_update.model_dump(exclude_unset=True)
+    
+    # 3. Lógica de cálculo de precio por porcentaje de ganancia
+    if "profit_percentage" in update_data:
+        profit_pct = update_data.pop("profit_percentage")
+        
+        # Necesitamos el precio neto para calcular
+        # Lo buscamos en los datos de actualización, o usamos el existente en DB
+        net_price = update_data.get("net_price")
+        if net_price is None:
+            net_price = current_product.get("net_price")
+            
+        if net_price is not None:
+            # Calcular nuevo precio de venta: neto * (1 + ganancia/100)
+            calculated_price = round(net_price * (1 + profit_pct / 100), 2)
+            update_data["price"] = calculated_price
+            logger.info(f"Precio calculado automáticamente: {calculated_price} (Neto: {net_price}, Ganancia: {profit_pct}%)")
+        else:
+            # Si no hay precio neto ni en el update ni en la DB, no podemos calcular
+            logger.warning(f"No se pudo calcular el precio para {product_id} porque falta 'net_price'")
+
+    # 4. No permitir cambiar el ID
+    for key in ["_id", "id"]:
+        if key in update_data:
+            del update_data[key]
+
+    if not update_data:
+        # Si no hay nada que actualizar tras procesar
+        return AdminProduct(**current_product)
+
+    # 5. Ejecutar actualización
     result = await products_collection.update_one(
         {"_id": ObjectId(product_id)},
         {"$set": update_data}
     )
 
-    if result.matched_count == 0:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado para actualizar.")
-    
     updated_product = await products_collection.find_one({"_id": ObjectId(product_id)})
-    if updated_product:
-        return AdminProduct(**updated_product)
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Producto actualizado pero no se pudo recuperar.")
+    return AdminProduct(**updated_product)
 
 
 

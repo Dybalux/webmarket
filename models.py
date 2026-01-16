@@ -103,6 +103,26 @@ class AdminProduct(Product):
     """Versión extendida del producto para administradores que incluye el precio neto"""
     net_price: Optional[float] = Field(None, ge=0, description="Precio de costo o neto (Visible solo para admin)", exclude=False)
 
+class ProductUpdate(BaseModel):
+    """Modelo para actualizar un producto, permite campos opcionales y cálculo por ganancia"""
+    name: Optional[str] = Field(None, min_length=3, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    price: Optional[float] = Field(None, gt=0)
+    category: Optional[ProductCategory] = None
+    stock: Optional[int] = Field(None, ge=0)
+    image_url: Optional[str] = None
+    abv: Optional[float] = Field(None, ge=0, le=100)
+    volume_ml: Optional[int] = Field(None, gt=0)
+    origin: Optional[str] = Field(None, max_length=50)
+    net_price: Optional[float] = Field(None, ge=0)
+    active: Optional[bool] = None
+    profit_percentage: Optional[float] = Field(None, description="Porcentaje de ganancia para calcular el precio automáticamente")
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
+        arbitrary_types_allowed = True
+
 
 # Modelos para Usuarios
 class UserRegister(BaseModel):
