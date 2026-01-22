@@ -29,9 +29,10 @@ API REST completa para e-commerce de bebidas con autenticación JWT, verificaci�
 
 ### Gestión de Productos
 - ✅ CRUD completo de productos (bebidas)
-- ✅ Categorías: Cerveza, Vinos, Licores, Gaseosas
+- ✅ **Sistema de Combos y Packs promocionales**
+- ✅ Categorías: Cerveza, Vinos, Licores, Gaseosas, Combos
 - ✅ Filtrado por categoría, precio y búsqueda por texto
-- ✅ Paginación de resultados
+- ✅ Cálculo automático de precios (Costo + % Ganancia)
 - ✅ Información detallada (ABV, volumen, origen)
 
 ### Sistema de Compras
@@ -41,17 +42,22 @@ API REST completa para e-commerce de bebidas con autenticación JWT, verificaci�
 - ✅ Historial de compras
 - ✅ Direcciones de envío
 
-### Integración de Pagos ❌ Falta Implementarloo bien
-- ❌Integración con Mercado Pago
+### Integración de Pagos
+- ✅ Integración completa con Mercado Pago 
 - ✅ Generación de preferencias de pago
-- ✅ Webhooks para notificaciones de pago
+- ✅ Webhooks para notificaciones en tiempo real
 - ✅ Actualización automática de estados de pedido
 
 ### Gestión de Inventario
-- ✅ Control de stock automático
+- ✅ Control de stock automático (Individual y Combos)
 - ✅ Alertas de bajo inventario
-- ✅ Panel de administración para gestionar productos
-- ✅ Reposición de stock
+- ✅ Reposición de stock simplificada
+
+### Administración del Sistema
+- ✅ Gestión de Roles de Usuario (Admin/Cliente)
+- ✅ Modo Mantenimiento con IP permitidas
+- ✅ Configuración de Costos de Envío y Retiro en Sucursal
+- ✅ Configuración de Redes Sociales y Métodos de Pago
 
 ### Auditoría y Logging
 - ✅ Sistema de auditoría de eventos críticos
@@ -105,6 +111,13 @@ API REST completa para e-commerce de bebidas con autenticación JWT, verificaci�
 - `PUT /products/{id}` - Actualizar producto [Admin]
 - `DELETE /products/{id}` - Eliminar producto [Admin]
 
+#### 🧩 Combos (`/combos`)
+- `GET /combos/` - Listar combos activos
+- `GET /combos/{id}` - Detalles de combo
+- `POST /combos/` - Crear combo [Admin]
+- `PUT /combos/{id}` - Editar combo [Admin]
+- `DELETE /combos/{id}` - Eliminar combo [Admin]
+
 #### 🛒 Carrito (`/cart`)
 - `GET /cart/` - Ver carrito actual
 - `POST /cart/add` - Agregar producto al carrito
@@ -126,6 +139,12 @@ API REST completa para e-commerce de bebidas con autenticación JWT, verificaci�
 - `PUT /inventory/{product_id}/stock` - Establecer stock
 - `PUT /inventory/{product_id}/stock/add` - Reponer stock
 - `GET /inventory/alerts` - Ver alertas de bajo stock
+
+#### ⚙️ Configuración (`/admin` & Settings)
+- `GET /admin/users` - Gestión de usuarios y roles
+- `GET/PUT /admin/system-status` - Modo mantenimiento
+- `GET/PUT /admin/shipping-settings` - Configuración de envíos
+- `GET/PUT /admin/payment-settings` - Redes sociales y pagos
 
 ---
 
