@@ -14,3 +14,6 @@ docs/
 
 # Archivos de configuración
 generate_secret.py
+
+# opencode tooling state (local-only)
+.atl/
