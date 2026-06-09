@@ -20,7 +20,7 @@ NOTE on transactions:
     is NOT verified by this suite — that is a documented gap of the
     in-memory backend.
 
-Marked @pytest.mark.unit and @pytest.mark.xfail_bug where appropriate.
+Marked @pytest.mark.unit.
 """
 
 from __future__ import annotations
@@ -236,18 +236,14 @@ class TestUpdateStockAtomic:
         assert after["stock"] == 7
 
     @pytest.mark.unit
-    @pytest.mark.xfail_bug
-    @pytest.mark.xfail(
-        strict=False,
-        reason="Race condition / $gte guard handling — see fix-stock-bugs change",
-    )
     async def test_race_condition_detected_modified_count_zero(self):
         """stock=2, decrement=5 → modified_count=0, raises 409, stock unchanged.
 
-        Marked xfail with reason referencing the follow-up fix-stock-bugs change
-        because the current implementation's $gte guard plus the missing find_one
-        inside the error branch is a known production bug. The test verifies
-        the contract once the fix lands.
+        Verifies the $gte guard in update_stock_atomic: when the requested
+        decrement exceeds available stock, MongoDB's $gte filter causes
+        modified_count=0 and a 409 CONFLICT is raised. The stock_helpers
+        code has always handled this correctly — the race condition was
+        in routers/orders.py (now fixed with the same $gte guard pattern).
         """
         coll = _make_products_collection()
         oid = await _seed_one(coll, name="Stella 1L", stock=2)

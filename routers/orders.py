@@ -8,6 +8,7 @@ from database import get_database, get_collection
 from security import get_current_active_user_id, get_current_verified_user, get_current_admin_user
 from email_service import send_new_order_notification
 from pricing_helpers import get_adjusted_price
+from routers.inventory import check_and_create_alert, get_alerts_collection
 # from stock_helpers import validate_and_reserve_stock, update_stock_atomic  # Descomenta cuando uses MongoDB M10+
 import logging
 
@@ -177,12 +178,12 @@ async def get_shipping_prices():
 @router.post("/", response_model=Order, status_code=status.HTTP_201_CREATED)
 async def create_order(
     order_data: OrderCreate,
-    payment_method: PaymentMethod = PaymentMethod.MERCADO_PAGO,  # Método de pago por defecto
+    payment_method: PaymentMethod = PaymentMethod.MERCADO_PAGO,
     user_id: str = Depends(get_current_active_user_id),
     carts_collection = Depends(get_carts_collection),
     products_collection = Depends(get_products_collection),
     orders_collection = Depends(get_orders_collection),
-    # Es crucial que el usuario esté verificado para hacer un pedido
+    alerts_collection = Depends(get_alerts_collection),
     current_verified_user: TokenData = Depends(get_current_verified_user)
 ):
     """
@@ -378,6 +379,12 @@ async def create_order(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Stock insuficiente para '{product_name}' debido a una compra concurrente. Por favor, intentá nuevamente."
             )
+
+    # 4.5 Verificar alertas de bajo stock para cada producto decrementado
+    for p in product_ids_to_update:
+        await check_and_create_alert(
+            products_collection, alerts_collection, str(p["id"])
+        )
 
     order_dict = new_order.model_dump(exclude={"_id"}, by_alias=False)
     result = await orders_collection.insert_one(order_dict)

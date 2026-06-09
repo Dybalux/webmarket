@@ -17,3 +17,4 @@ generate_secret.py
 
 # opencode tooling state (local-only)
 .atl/
+.env
