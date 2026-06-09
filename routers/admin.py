@@ -478,7 +478,10 @@ async def bulk_price_update(
         if update_data.target != "all":
             query["category"] = update_data.target
 
-        # Obtenemos los productos a actualizar
+        # Obtenemos los productos a actualizar.
+        # NOTA: esta operación es intencionalmente sin límite — es una acción
+        # administrativa masiva. Si el catálogo crece mucho (>10k productos),
+        # considerar procesar en batches con un cursor + sleep entre lotes.
         cursor = products_collection.find(query)
         updated_count = 0
         

@@ -109,11 +109,13 @@ async def add_to_product_stock(
 
 @router.get("/alerts", response_model=List[InventoryAlert])
 async def get_inventory_alerts(
+    limit: int = 100,
     alerts_collection = Depends(get_alerts_collection),
     current_admin_user: TokenData = Depends(get_current_admin_user)
 ):
     """
-    [Admin] Obtiene una lista de todas las alertas de bajo inventario.
+    [Admin] Obtiene las últimas alertas de bajo inventario.
+    Limitado por defecto a 100 resultados para evitar sobrecarga.
     """
-    alerts_cursor = alerts_collection.find().sort("timestamp", -1)
+    alerts_cursor = alerts_collection.find().sort("timestamp", -1).limit(limit)
     return [InventoryAlert(**alert) async for alert in alerts_cursor]
