@@ -15,13 +15,10 @@ T3.3  PUT /inventory/{id}/stock — non-admin 403
 T3.4  POST /orders — full happy path with all stock helpers wired
 T3.5  PUT /orders/admin/{id}/status — cancel + refund
 
-T3.4 is marked @pytest.mark.xfail(strict=False, ...) because
-create_order has a known race condition (separate non-atomic check
-and decrement) tracked by the fix-stock-bugs change. T3.5 is marked
-@pytest.mark.xfail(strict=False, ...) because update_order_status
-has a known indentation bug (the for loop is outside the
-"is cancel/refund" guard) tracked by the same change. T3.1, T3.2,
-T3.3 are expected to pass against the current production code.
+All tasks are expected to pass now:
+- T3.4 race condition fixed: stock $inc now uses a $gte guard
+- T3.5 indentation bug fixed: stock restoration loop properly
+  scoped inside the "is cancel/refund" guard
 
 All tests are marked @pytest.mark.endpoint. Production code is
 untouched. The minimal test app does NOT include MaintenanceModeMiddleware
@@ -359,13 +356,6 @@ class TestNonAdminCannotModifyStock:
 
 class TestFullOrderEndpoint:
     @pytest.mark.endpoint
-    @pytest.mark.xfail(
-        strict=False,
-        reason=(
-            "Race condition in create_order; the pre-check and the $inc "
-            "decrement are not atomic. See fix-stock-bugs change."
-        ),
-    )
     async def test_full_order_end_to_end_decrements_stock(
         self, test_app, test_db, test_client, auth_user_dep
     ):
@@ -425,19 +415,19 @@ class TestFullOrderEndpoint:
 # ---------------------------------------------------------------------------
 
 
-def _seed_delivered_order(orders, products, user_id: str) -> tuple[str, list[ObjectId]]:
+async def _seed_delivered_order(orders, products, user_id: str) -> tuple[str, list[ObjectId]]:
     """Seed an order with status=DELIVERED plus a parallel decrement
     on the product stocks (to simulate the state after a delivered
     order: stock has already been decremented at create time).
 
     Returns (order_id_str, list_of_product_oids).
     """
-    quilmes = products.find_one({"_id": ObjectId("507f1f77bcf86cd799439011")})
-    stella = products.find_one({"_id": ObjectId("507f1f77bcf86cd799439012")})
+    quilmes = await products.find_one({"_id": ObjectId("507f1f77bcf86cd799439011")})
+    stella = await products.find_one({"_id": ObjectId("507f1f77bcf86cd799439012")})
     product_oids = [quilmes["_id"], stella["_id"]]
 
     order_id = ObjectId()
-    orders.insert_one(
+    await orders.insert_one(
         {
             "_id": order_id,
             "user_id": user_id,
@@ -468,23 +458,14 @@ def _seed_delivered_order(orders, products, user_id: str) -> tuple[str, list[Obj
 
     # Simulate the stock that was already decremented at order creation:
     # Quilmes (stock=20) - 2 = 18; Stella (stock=5) - 1 = 4.
-    products.update_one({"_id": quilmes["_id"]}, {"$set": {"stock": 18}})
-    products.update_one({"_id": stella["_id"]}, {"$set": {"stock": 4}})
+    await products.update_one({"_id": quilmes["_id"]}, {"$set": {"stock": 18}})
+    await products.update_one({"_id": stella["_id"]}, {"$set": {"stock": 4}})
 
     return str(order_id), product_oids
 
 
 class TestCancelAndRefundRestoreStock:
     @pytest.mark.endpoint
-    @pytest.mark.xfail(
-        strict=False,
-        reason=(
-            "Indentation bug in update_order_status: the for loop that "
-            "restores stock is at the wrong indentation level and runs "
-            "for every status change, not just CANCELLED/REFUNDED. "
-            "See fix-stock-bugs change."
-        ),
-    )
     async def test_cancel_status_restores_stock(
         self, test_app, test_db, test_client, auth_admin_dep
     ):
@@ -506,7 +487,7 @@ class TestCancelAndRefundRestoreStock:
         products = test_db["products"]
         orders = test_db["orders"]
 
-        order_id_str, product_oids = _seed_delivered_order(
+        order_id_str, product_oids = await _seed_delivered_order(
             orders, products, FAKE_USER_ID
         )
 
@@ -534,12 +515,6 @@ class TestCancelAndRefundRestoreStock:
         assert stella["stock"] == 5
 
     @pytest.mark.endpoint
-    @pytest.mark.xfail(
-        strict=False,
-        reason=(
-            "Indentation bug in update_order_status; see fix-stock-bugs."
-        ),
-    )
     async def test_refund_status_restores_stock(
         self, test_app, test_db, test_client, auth_admin_dep
     ):
@@ -552,7 +527,7 @@ class TestCancelAndRefundRestoreStock:
         products = test_db["products"]
         orders = test_db["orders"]
 
-        order_id_str, _ = _seed_delivered_order(
+        order_id_str, _ = await _seed_delivered_order(
             orders, products, FAKE_USER_ID
         )
 
