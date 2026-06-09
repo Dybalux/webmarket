@@ -8,6 +8,7 @@ from database import get_database, get_collection
 from security import get_current_active_user_id, get_current_verified_user, get_current_admin_user
 from email_service import send_new_order_notification
 from pricing_helpers import get_adjusted_price
+from routers.inventory import check_and_create_alert, get_alerts_collection
 # from stock_helpers import validate_and_reserve_stock, update_stock_atomic  # Descomenta cuando uses MongoDB M10+
 import logging
 
@@ -177,12 +178,12 @@ async def get_shipping_prices():
 @router.post("/", response_model=Order, status_code=status.HTTP_201_CREATED)
 async def create_order(
     order_data: OrderCreate,
-    payment_method: PaymentMethod = PaymentMethod.MERCADO_PAGO,  # Método de pago por defecto
+    payment_method: PaymentMethod = PaymentMethod.MERCADO_PAGO,
     user_id: str = Depends(get_current_active_user_id),
     carts_collection = Depends(get_carts_collection),
     products_collection = Depends(get_products_collection),
     orders_collection = Depends(get_orders_collection),
-    # Es crucial que el usuario esté verificado para hacer un pedido
+    alerts_collection = Depends(get_alerts_collection),
     current_verified_user: TokenData = Depends(get_current_verified_user)
 ):
     """
@@ -351,18 +352,45 @@ async def create_order(
         payment_method=payment_method  # Guardar el método de pago seleccionado
     )
     
+    # 4. Decrementar el stock de los productos (ANTES de insertar el pedido)
+    # Usamos un guard $gte para detectar race conditions: si otro request
+    # concurrente ya tomó el stock, modified_count será 0 y devolvemos 409.
+    for p in product_ids_to_update:
+        result = await products_collection.update_one(
+            {
+                "_id": p["id"],
+                "stock": {"$gte": p["quantity_to_decrement"]}
+            },
+            {"$inc": {"stock": -p["quantity_to_decrement"]}}
+        )
+        if result.modified_count == 0:
+            # Race condition detectada — otro request concurrente tomó el stock
+            # Revertimos cualquier decremento ya aplicado en este mismo batch
+            for rollback_p in product_ids_to_update:
+                if rollback_p is p:
+                    break  # este fue el que falló, los anteriores ya se aplicaron
+                await products_collection.update_one(
+                    {"_id": rollback_p["id"]},
+                    {"$inc": {"stock": rollback_p["quantity_to_decrement"]}}
+                )
+            product = await products_collection.find_one({"_id": p["id"]})
+            product_name = product["name"] if product else "desconocido"
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Stock insuficiente para '{product_name}' debido a una compra concurrente. Por favor, intentá nuevamente."
+            )
+
+    # 4.5 Verificar alertas de bajo stock para cada producto decrementado
+    for p in product_ids_to_update:
+        await check_and_create_alert(
+            products_collection, alerts_collection, str(p["id"])
+        )
+
     order_dict = new_order.model_dump(exclude={"_id"}, by_alias=False)
     result = await orders_collection.insert_one(order_dict)
     
     if not result.inserted_id:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="No se pudo crear el pedido.")
-
-    # 4. Decrementar el stock de los productos
-    for p in product_ids_to_update:
-        await products_collection.update_one(
-            {"_id": p["id"]},
-            {"$inc": {"stock": -p["quantity_to_decrement"]}}
-        )
 
     # 5. Vaciar el carrito del usuario
     await carts_collection.update_one(
@@ -488,10 +516,14 @@ async def create_order(
 @router.get("/me", response_model=List[Order])
 async def get_my_orders(
     user_id: str = Depends(get_current_active_user_id),
-    orders_collection = Depends(get_orders_collection)
+    orders_collection = Depends(get_orders_collection),
+    limit: int = 50,
+    skip: int = 0,
 ):
-    """Obtiene el historial de pedidos del usuario autenticado."""
-    orders_cursor = orders_collection.find({"user_id": user_id}).sort("created_at", -1)
+    """Obtiene el historial de pedidos del usuario autenticado, paginado."""
+    orders_cursor = orders_collection.find(
+        {"user_id": user_id}
+    ).sort("created_at", -1).skip(skip).limit(limit)
     return [Order(**order) async for order in orders_cursor]
 
 
@@ -592,27 +624,28 @@ async def update_order_status(
     current_status = str(current_order["status"])
 
     # 3. Reposición de stock si corresponde
-    # Lógica de reposición de stock
+    # Lógica de reposición de stock: solo para CANCELADO o REEMBOLSADO,
+    # y solo si el pedido no estaba ya en ese estado.
     if new_status in [OrderStatus.CANCELLED, OrderStatus.REFUNDED] and current_status not in [
-    OrderStatus.CANCELLED.value, OrderStatus.REFUNDED.value
+        OrderStatus.CANCELLED.value, OrderStatus.REFUNDED.value
     ]:
         logger.info(f"El pedido {order_id} se está cancelando/reembolsando. Reponiendo stock...")
-    for item in current_order["items"]:
-        try:
-            product_oid = ObjectId(item["product_id"])
-        except Exception:
-            logger.error(f"El product_id {item['product_id']} no es válido, no se repone stock.")
-            continue
+        for item in current_order["items"]:
+            try:
+                product_oid = ObjectId(item["product_id"])
+            except Exception:
+                logger.error(f"El product_id {item['product_id']} no es válido, no se repone stock.")
+                continue
 
-        result = await products_collection.update_one(
-            {"_id": product_oid},
-            {"$inc": {"stock": item["quantity"]}}
-        )
+            result = await products_collection.update_one(
+                {"_id": product_oid},
+                {"$inc": {"stock": item["quantity"]}}
+            )
 
-        if result.modified_count:
-            logger.info(f"Stock del producto {item['product_id']} incrementado en {item['quantity']}.")
-        else:
-            logger.warning(f"No se encontró producto con id {item['product_id']} para reponer stock.")
+            if result.modified_count:
+                logger.info(f"Stock del producto {item['product_id']} incrementado en {item['quantity']}.")
+            else:
+                logger.warning(f"No se encontró producto con id {item['product_id']} para reponer stock.")
 
    # 4. Actualizamos el estado del pedido
     await orders_collection.update_one(

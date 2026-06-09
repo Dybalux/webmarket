@@ -1,0 +1,49 @@
+# openspec/config.yaml — webmarket SDD configuration
+# Generated: 2026-06-09 by sdd-init
+
+schema: spec-driven
+
+context: |
+  Tech stack: Python 3.13, FastAPI 0.116, Motor 3.7 (MongoDB async), Pydantic 2.11, Redis 6.4, MercadoPago 2.3, Resend 2.5
+  Architecture: Flat module structure (routers/, models.py, database.py, config.py). No service/repository layers. Singleton DB connection.
+  Testing: No test infrastructure. pytest not installed. No test files.
+  Style: Spanish comments, English identifiers. Direct DB access in routers. FastAPI dep injection for DB collections.
+  Deployment: Railway (Dockerfile), Python 3.13-alpine, gunicorn for prod.
+
+testing:
+  strict_tdd: false
+  reason: "Strict TDD disabled — we ship tests alongside code in the same PR; the change is documentation-as-spec, not a strict red/green discipline."
+  runner: pytest
+  framework: pytest
+  layers:
+    unit: true
+    integration: true
+    e2e: true
+  coverage: true
+  quality:
+    linter: false
+    type_checker: false
+    formatter: false
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    - Follow existing code patterns (FastAPI routers, Pydantic models, Motor async)
+    tdd: false
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: "python main.py"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
