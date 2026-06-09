@@ -509,10 +509,14 @@ async def create_order(
 @router.get("/me", response_model=List[Order])
 async def get_my_orders(
     user_id: str = Depends(get_current_active_user_id),
-    orders_collection = Depends(get_orders_collection)
+    orders_collection = Depends(get_orders_collection),
+    limit: int = 50,
+    skip: int = 0,
 ):
-    """Obtiene el historial de pedidos del usuario autenticado."""
-    orders_cursor = orders_collection.find({"user_id": user_id}).sort("created_at", -1)
+    """Obtiene el historial de pedidos del usuario autenticado, paginado."""
+    orders_cursor = orders_collection.find(
+        {"user_id": user_id}
+    ).sort("created_at", -1).skip(skip).limit(limit)
     return [Order(**order) async for order in orders_cursor]
 
 
