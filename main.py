@@ -4,7 +4,7 @@ from config import settings
 from database import connect_db, close_db, get_database
 from routers import auth, products, age_verification, cart, orders, payments, inventory, admin, payment_settings, combos, pricing_settings
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 import uvicorn
 import logging
 import os
@@ -143,7 +143,7 @@ async def health_check():
     """
     health_status = {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         "service": "EscabiAPI",
         "version": "0.0.1",
         "checks": {}

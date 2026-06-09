@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from database import connect_db, close_db, get_collection
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -41,7 +41,7 @@ async def init_payment_settings():
         default_settings = {
             "transfer_alias": "TU.ALIAS",
             "transfer_whatsapp": "TU.WHATSAPP",
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(tz=timezone.utc),
             "updated_by": None  # Inicialización automática
         }
         

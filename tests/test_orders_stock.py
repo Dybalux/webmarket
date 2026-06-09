@@ -49,7 +49,7 @@ Technical notes
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 import pytest
 from bson import ObjectId
@@ -209,7 +209,7 @@ class TestAddToStock:
                 "current_stock": 5,
                 "threshold": 10,
                 "message": existing_msg,
-                "timestamp": datetime.utcnow(),
+                "timestamp": datetime.now(tz=timezone.utc),
             }
         )
         pre_count = await alerts.count_documents({"product_id": product_id_str})
@@ -255,7 +255,7 @@ class TestInventoryAlertsListing:
         """
         alerts = test_db["inventory_alerts"]
 
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         seeded = [
             {
                 "_id": ObjectId(),
@@ -359,13 +359,6 @@ class TestNonAdminCannotModifyStock:
 
 class TestFullOrderEndpoint:
     @pytest.mark.endpoint
-    @pytest.mark.xfail(
-        strict=False,
-        reason=(
-            "Race condition in create_order; the pre-check and the $inc "
-            "decrement are not atomic. See fix-stock-bugs change."
-        ),
-    )
     async def test_full_order_end_to_end_decrements_stock(
         self, test_app, test_db, test_client, auth_user_dep
     ):
@@ -425,19 +418,19 @@ class TestFullOrderEndpoint:
 # ---------------------------------------------------------------------------
 
 
-def _seed_delivered_order(orders, products, user_id: str) -> tuple[str, list[ObjectId]]:
+async def _seed_delivered_order(orders, products, user_id: str) -> tuple[str, list[ObjectId]]:
     """Seed an order with status=DELIVERED plus a parallel decrement
     on the product stocks (to simulate the state after a delivered
     order: stock has already been decremented at create time).
 
     Returns (order_id_str, list_of_product_oids).
     """
-    quilmes = products.find_one({"_id": ObjectId("507f1f77bcf86cd799439011")})
-    stella = products.find_one({"_id": ObjectId("507f1f77bcf86cd799439012")})
+    quilmes = await products.find_one({"_id": ObjectId("507f1f77bcf86cd799439011")})
+    stella = await products.find_one({"_id": ObjectId("507f1f77bcf86cd799439012")})
     product_oids = [quilmes["_id"], stella["_id"]]
 
     order_id = ObjectId()
-    orders.insert_one(
+    await orders.insert_one(
         {
             "_id": order_id,
             "user_id": user_id,
@@ -461,30 +454,21 @@ def _seed_delivered_order(orders, products, user_id: str) -> tuple[str, list[Obj
             "shipping_zone": "pickup",
             "shipping_cost": 0.0,
             "payment_method": PaymentMethod.MERCADO_PAGO.value,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(tz=timezone.utc),
+            "updated_at": datetime.now(tz=timezone.utc),
         }
     )
 
     # Simulate the stock that was already decremented at order creation:
     # Quilmes (stock=20) - 2 = 18; Stella (stock=5) - 1 = 4.
-    products.update_one({"_id": quilmes["_id"]}, {"$set": {"stock": 18}})
-    products.update_one({"_id": stella["_id"]}, {"$set": {"stock": 4}})
+    await products.update_one({"_id": quilmes["_id"]}, {"$set": {"stock": 18}})
+    await products.update_one({"_id": stella["_id"]}, {"$set": {"stock": 4}})
 
     return str(order_id), product_oids
 
 
 class TestCancelAndRefundRestoreStock:
     @pytest.mark.endpoint
-    @pytest.mark.xfail(
-        strict=False,
-        reason=(
-            "Indentation bug in update_order_status: the for loop that "
-            "restores stock is at the wrong indentation level and runs "
-            "for every status change, not just CANCELLED/REFUNDED. "
-            "See fix-stock-bugs change."
-        ),
-    )
     async def test_cancel_status_restores_stock(
         self, test_app, test_db, test_client, auth_admin_dep
     ):
@@ -506,7 +490,7 @@ class TestCancelAndRefundRestoreStock:
         products = test_db["products"]
         orders = test_db["orders"]
 
-        order_id_str, product_oids = _seed_delivered_order(
+        order_id_str, product_oids = await _seed_delivered_order(
             orders, products, FAKE_USER_ID
         )
 
@@ -534,12 +518,6 @@ class TestCancelAndRefundRestoreStock:
         assert stella["stock"] == 5
 
     @pytest.mark.endpoint
-    @pytest.mark.xfail(
-        strict=False,
-        reason=(
-            "Indentation bug in update_order_status; see fix-stock-bugs."
-        ),
-    )
     async def test_refund_status_restores_stock(
         self, test_app, test_db, test_client, auth_admin_dep
     ):
@@ -552,7 +530,7 @@ class TestCancelAndRefundRestoreStock:
         products = test_db["products"]
         orders = test_db["orders"]
 
-        order_id_str, _ = _seed_delivered_order(
+        order_id_str, _ = await _seed_delivered_order(
             orders, products, FAKE_USER_ID
         )
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from models import DynamicPricingSettings
 import logging
@@ -13,7 +13,7 @@ def is_dynamic_pricing_active(settings: DynamicPricingSettings, current_time: Op
         return False
 
     if current_time is None:
-        current_time = datetime.utcnow()
+        current_time = datetime.now(tz=timezone.utc)
 
     # Obtener día (1=Lunes, 7=Domingo) y hora (0-23)
     current_day = current_time.weekday() + 1

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from models import DynamicPricingSettings, DynamicPricingUpdate, TokenData
@@ -35,7 +35,7 @@ async def get_pricing_settings_public(
                 end_day=7,
                 start_hour=20,
                 end_hour=6,
-                updated_at=datetime.utcnow()
+                updated_at=datetime.now(tz=timezone.utc)
             )
         
         return DynamicPricingSettings(**settings)
@@ -68,7 +68,7 @@ async def get_pricing_settings_admin(
                 end_day=7,
                 start_hour=20,
                 end_hour=6,
-                updated_at=datetime.utcnow()
+                updated_at=datetime.now(tz=timezone.utc)
             )
         
         return DynamicPricingSettings(**settings)
@@ -100,7 +100,7 @@ async def update_pricing_settings(
             "end_day": settings_update.end_day,
             "start_hour": settings_update.start_hour,
             "end_hour": settings_update.end_hour,
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(tz=timezone.utc),
             "updated_by": current_admin_user.user_id
         }
         

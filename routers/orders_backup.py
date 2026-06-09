@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 
 from models import Order, OrderCreate, OrderItem, OrderStatus, Product, Cart, TokenData, PaymentMethod
 from database import get_database, get_collection
@@ -329,7 +329,7 @@ async def select_payment_method(
         {"_id": ObjectId(order_id)},
         {"$set": {
             "payment_method": payment_method.value,
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.now(tz=timezone.utc)
         }}
     )
     
@@ -414,7 +414,7 @@ async def update_order_status(
    # 4. Actualizamos el estado del pedido
     await orders_collection.update_one(
         {"_id": ObjectId(order_id)},
-        {"$set": {"status": new_status.value, "updated_at": datetime.utcnow()}}
+        {"$set": {"status": new_status.value, "updated_at": datetime.now(tz=timezone.utc)}}
     )
     
     # 5. Devolver el pedido actualizado

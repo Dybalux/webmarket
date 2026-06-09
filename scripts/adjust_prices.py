@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database import get_database, get_collection
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 
 
@@ -104,7 +104,7 @@ async def adjust_prices(percentage: float, target: str = "all", based_on: str = 
                 {
                     "$set": {
                         "price": new_price,
-                        "updated_at": datetime.utcnow()
+                        "updated_at": datetime.now(tz=timezone.utc)
                     }
                 }
             )

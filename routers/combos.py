@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List, Optional
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 
 from models import Combo, ComboCreate, ComboUpdate, ComboDetailed, ComboItemDetailed, TokenData, DynamicPricingSettings
 from database import get_collection
@@ -356,7 +356,7 @@ async def update_combo(
         
         # Actualizar solo los campos proporcionados
         update_data = combo_data.model_dump(exclude_unset=True)
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = datetime.now(tz=timezone.utc)
         
         await combos_collection.update_one(
             {"_id": ObjectId(combo_id)},
@@ -414,7 +414,7 @@ async def delete_combo(
             # Soft delete - solo desactivar
             await combos_collection.update_one(
                 {"_id": ObjectId(combo_id)},
-                {"$set": {"active": False, "updated_at": datetime.utcnow()}}
+                {"$set": {"active": False, "updated_at": datetime.now(tz=timezone.utc)}}
             )
             logger.info(f"Admin {current_admin_user.username} desactivó el combo {combo_id}.")
             return {"message": "Combo desactivado correctamente."}

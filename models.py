@@ -390,7 +390,7 @@ class Combo(BaseModel):
     description: Optional[str] = Field(None, max_length=500, description="Descripción del combo")
     price: float = Field(..., gt=0, description="Precio especial del combo")
     image_url: Optional[str] = Field(None, description="URL de la imagen del combo (CDN)")
-    items: List[ComboItem] = Field(..., min_items=1, description="Productos que componen el combo")
+    items: List[ComboItem] = Field(..., min_length=1, description="Productos que componen el combo")
     active: bool = Field(default=True, description="Si el combo está activo o no")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -406,7 +406,7 @@ class ComboCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=500)
     price: float = Field(..., gt=0)
     image_url: Optional[str] = None
-    items: List[ComboItem] = Field(..., min_items=1)
+    items: List[ComboItem] = Field(..., min_length=1)
     active: bool = True
 
 class ComboUpdate(BaseModel):
@@ -415,7 +415,7 @@ class ComboUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=500)
     price: Optional[float] = Field(None, gt=0)
     image_url: Optional[str] = None
-    items: Optional[List[ComboItem]] = Field(None, min_items=1)
+    items: Optional[List[ComboItem]] = Field(None, min_length=1)
     active: Optional[bool] = None
 
 # Modelos para respuesta enriquecida de combos

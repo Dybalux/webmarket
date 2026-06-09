@@ -21,7 +21,7 @@ All tests marked @pytest.mark.integration.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from bson import ObjectId
@@ -154,7 +154,7 @@ class TestAlertDedup:
                 "current_stock": 8,
                 "threshold": 10,
                 "message": msg,
-                "timestamp": datetime.utcnow(),
+                "timestamp": datetime.now(tz=timezone.utc),
             }
         )
 

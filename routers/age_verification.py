@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from dateutil.relativedelta import relativedelta 
 from bson import ObjectId
 
@@ -51,7 +51,7 @@ async def verify_age(
             detail="Fecha de nacimiento no registrada para este usuario. Por favor, actualiza tu perfil."
         )
     
-    today = datetime.utcnow()
+    today = datetime.now(tz=timezone.utc)
     
     # Asegurar que birth_date sea naive para comparar con utcnow()
     if birth_date.tzinfo is not None:
@@ -64,7 +64,7 @@ async def verify_age(
             # Si por alguna razón estaba verificado, lo desverificamos
             await users_collection.update_one(
                 {"_id": ObjectId(user_id)},
-                {"$set": {"age_verified": False, "updated_at": datetime.utcnow()}}
+                {"$set": {"age_verified": False, "updated_at": datetime.now(tz=timezone.utc)}}
             )
             logger.warning(f"Usuario {user_db['username']} (ID: {user_id}) era menor de edad pero estaba verificado. Estado corregido a no verificado.")
         raise HTTPException(
@@ -76,7 +76,7 @@ async def verify_age(
         if not user_db.get("age_verified"):
             await users_collection.update_one(
                 {"_id": ObjectId(user_id)},
-                {"$set": {"age_verified": True, "updated_at": datetime.utcnow()}}
+                {"$set": {"age_verified": True, "updated_at": datetime.now(tz=timezone.utc)}}
             )
             logger.info(f"Usuario {user_db['username']} (ID: {user_id}) ha verificado su mayoría de edad. Ahora tiene {age} años.")
         

@@ -43,7 +43,7 @@ async def create_user_in_db(collection, user_data: UserRegister) -> UserResponse
     
     # Calcular la edad del usuario automáticamente
     MINIMUM_AGE = 18
-    today = datetime.utcnow()
+    today = datetime.now(tz=timezone.utc)
     birth_date = user_data.birth_date
     
     # Si la fecha de nacimiento tiene zona horaria (offset-aware), la convertimos a naive para comparar con utcnow()
@@ -61,7 +61,7 @@ async def create_user_in_db(collection, user_data: UserRegister) -> UserResponse
     user_dict["birth_date"] = user_data.birth_date # Guardamos la fecha de nacimiento para verificación
     user_dict["role"] = UserRole.CUSTOMER.value # Por defecto, todos son clientes
     user_dict["age_verified"] = age_verified # Se verifica automáticamente si tiene 18+ años
-    user_dict["created_at"] = datetime.utcnow()
+    user_dict["created_at"] = datetime.now(tz=timezone.utc)
 
     try:
         result = await collection.insert_one(user_dict)
@@ -155,14 +155,14 @@ async def login_for_access_token(
     
     # Crear refresh token
     refresh_token = create_refresh_token()
-    refresh_token_expires = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    refresh_token_expires = datetime.now(tz=timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     
     # Guardar refresh token hasheado en la base de datos
     refresh_token_data = {
         "token": hash_token(refresh_token),
         "user_id": str(user["_id"]),
         "expires_at": refresh_token_expires,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(tz=timezone.utc),
         "revoked": False
     }
     await refresh_tokens_collection.insert_one(refresh_token_data)
@@ -189,7 +189,7 @@ async def refresh_access_token(
     # NOTA: los refresh tokens se almacenan hasheados con bcrypt, por lo que
     # no se pueden buscar directamente por su valor. Para evitar cargar TODOS
     # los tokens en memoria, filtramos por expirados y limitamos el cursor.
-    now = datetime.utcnow()
+    now = datetime.now(tz=timezone.utc)
     cursor = refresh_tokens_collection.find({
         "revoked": False,
         "expires_at": {"$gt": now}
@@ -209,7 +209,7 @@ async def refresh_access_token(
         )
     
     # Verificar que no haya expirado
-    if valid_token_doc["expires_at"] < datetime.utcnow():
+    if valid_token_doc["expires_at"] < datetime.now(tz=timezone.utc):
         await refresh_tokens_collection.delete_one({"_id": valid_token_doc["_id"]})
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -243,7 +243,7 @@ async def refresh_access_token(
     
     # Crear nuevo refresh token
     new_refresh_token = create_refresh_token()
-    new_refresh_token_expires = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    new_refresh_token_expires = datetime.now(tz=timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     
     # Revocar el refresh token anterior
     await refresh_tokens_collection.update_one(
@@ -256,7 +256,7 @@ async def refresh_access_token(
         "token": hash_token(new_refresh_token),
         "user_id": str(user["_id"]),
         "expires_at": new_refresh_token_expires,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(tz=timezone.utc),
         "revoked": False
     }
     await refresh_tokens_collection.insert_one(new_refresh_token_data)

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from models import PaymentSettings, PaymentSettingsUpdate, TokenData
@@ -36,7 +36,7 @@ async def get_payment_settings_public(
                 instagram_url=None,
                 facebook_url=None,
                 email=None,
-                updated_at=datetime.utcnow()
+                updated_at=datetime.now(tz=timezone.utc)
             )
         
         return PaymentSettings(**settings)
@@ -101,7 +101,7 @@ async def update_payment_settings(
             "instagram_url": settings_update.instagram_url,
             "facebook_url": settings_update.facebook_url,
             "email": settings_update.email,
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(tz=timezone.utc),
             "updated_by": current_admin_user.user_id
         }
         

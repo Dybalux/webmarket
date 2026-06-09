@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List, Optional
 from bson import ObjectId
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from models import Order, UserResponse, OrderStatus, UserRole, TokenData, ShippingSettings, BulkPriceUpdate, SystemSettings
 from database import get_database, get_collection
@@ -59,7 +59,7 @@ async def get_admin_stats(
         total_revenue = total_revenue_result[0]["total"] if total_revenue_result else 0.0
         
         # Ingresos del último mes
-        last_month = datetime.utcnow() - timedelta(days=30)
+        last_month = datetime.now(tz=timezone.utc) - timedelta(days=30)
         pipeline_monthly_revenue = [
             {
                 "$match": {
@@ -356,7 +356,7 @@ async def get_shipping_settings(
                 "pickup_address": "Configurar dirección en panel de administración",
                 "pickup_price": 0.0,
                 "pickup_description": "🏪 Retiro en Persona - GRATIS en nuestro local",
-                "updated_at": datetime.utcnow()
+                "updated_at": datetime.now(tz=timezone.utc)
             }
             result = await settings_collection.insert_one(default_settings)
             settings = await settings_collection.find_one({"_id": result.inserted_id})
@@ -411,7 +411,7 @@ async def update_shipping_settings(
             "pickup_price": 0.0,  # Siempre gratis
             "pickup_description": pickup_description,
             # Metadata
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(tz=timezone.utc),
             "updated_by": current_admin_user.user_id
         }
         
@@ -502,7 +502,7 @@ async def bulk_price_update(
             # Actualizar en DB
             await products_collection.update_one(
                 {"_id": product_doc["_id"]},
-                {"$set": {"price": new_price, "updated_at": datetime.utcnow()}}
+                {"$set": {"price": new_price, "updated_at": datetime.now(tz=timezone.utc)}}
             )
             updated_count += 1
             
@@ -539,7 +539,7 @@ async def get_system_settings(
                 "maintenance_mode": False,
                 "maintenance_message": "Estamos realizando mejoras. Volvemos pronto.",
                 "allowed_ips": [],
-                "updated_at": datetime.utcnow()
+                "updated_at": datetime.now(tz=timezone.utc)
             }
             result = await settings_collection.insert_one(default_settings)
             settings = await settings_collection.find_one({"_id": result.inserted_id})
@@ -571,7 +571,7 @@ async def update_system_settings(
             "maintenance_mode": maintenance_mode,
             "maintenance_message": maintenance_message,
             "allowed_ips": allowed_ips,
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(tz=timezone.utc),
             "updated_by": current_admin_user.user_id
         }
         

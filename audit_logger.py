@@ -2,7 +2,7 @@ import logging
 import json
 from fastapi import Request
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Configura un logger específico para auditoría
 audit_log = logging.getLogger("audit")
@@ -38,7 +38,7 @@ def log_audit(event: AuditEvent, request: Request, details: dict):
         "client_ip": client_ip,
         "method": method,
         "path": path,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         "details": details
     }
 
