@@ -185,11 +185,18 @@ async def refresh_access_token(
     Genera un nuevo access token usando un refresh token válido.
     El refresh token debe ser válido y no estar revocado.
     """
-    # Buscar el refresh token en la base de datos
-    refresh_token_docs = await refresh_tokens_collection.find({"revoked": False}).to_list(length=None)
-    
+    # Buscar el refresh token en la base de datos.
+    # NOTA: los refresh tokens se almacenan hasheados con bcrypt, por lo que
+    # no se pueden buscar directamente por su valor. Para evitar cargar TODOS
+    # los tokens en memoria, filtramos por expirados y limitamos el cursor.
+    now = datetime.utcnow()
+    cursor = refresh_tokens_collection.find({
+        "revoked": False,
+        "expires_at": {"$gt": now}
+    }).limit(50)
+
     valid_token_doc = None
-    for token_doc in refresh_token_docs:
+    async for token_doc in cursor:
         if verify_refresh_token(refresh_token, token_doc["token"]):
             valid_token_doc = token_doc
             break
