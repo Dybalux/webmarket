@@ -313,6 +313,178 @@ curl -X POST "https://web-production-62840.up.railway.app/products/" \
 
 ---
 
+## 🏗️ Arquitectura
+
+### Stack
+
+```mermaid
+graph TB
+    subgraph "Frontend"
+        V[Vercel / altotrago.com]
+    end
+
+    subgraph "Backend — Railway"
+        API[FastAPI REST API]
+        JWT[JWT Auth]
+        RL[Redis Rate Limiter]
+    end
+
+    subgraph "External Services"
+        MP[MercadoPago]
+        RS[Resend Email]
+        DB[(MongoDB Atlas)]
+    end
+
+    V -->|HTTPS| API
+    API --> JWT
+    API --> RL
+    API --> DB
+    API --> MP
+    API --> RS
+    RL --> R[(Redis)]
+```
+
+### Flujo de una Orden
+
+```mermaid
+sequenceDiagram
+    actor U as Usuario
+    participant C as Cart
+    participant O as Orders
+    participant P as Products/Stock
+    participant A as Alerts
+    participant E as Email
+
+    U->>C: POST /cart/add
+    U->>O: POST /orders/
+    O->>C: Cargar carrito
+    O->>P: Validar stock de cada item
+    alt Stock insuficiente
+        O-->>U: 409 Conflict
+    else Stock OK
+        O->>P: Decrementar stock ($gte guard)
+        O->>A: check_and_create_alert()
+        O->>O: Insertar orden (PENDING)
+        O->>C: Vaciar carrito
+        O->>E: Notificar admins (Resend)
+        O-->>U: 201 Orden creada
+    end
+```
+
+### Autenticación (JWT + Refresh)
+
+```mermaid
+sequenceDiagram
+    actor U as Usuario
+    participant A as /auth
+    participant DB as MongoDB
+
+    U->>A: POST /auth/token (user+pass)
+    A->>DB: verify bcrypt
+    A->>A: Generar JWT (30min)
+    A->>A: Generar refresh token (7d)
+    A->>DB: Guardar refresh hasheado
+    A-->>U: access_token + refresh_token
+
+    Note over U,A: Cuando el JWT expira...
+
+    U->>A: POST /auth/refresh (refresh_token)
+    A->>DB: Buscar no revocados (cursor, limit 50)
+    A->>A: bcrypt verify uno por uno
+    alt Token válido
+        A->>DB: Revocar token viejo
+        A->>A: Emitir nuevo par
+        A-->>U: Nuevo access_token + refresh_token
+    else Inválido o expirado
+        A-->>U: 401 Unauthorized
+    end
+```
+
+### Estructura de Datos
+
+```mermaid
+erDiagram
+    User ||--o{ Order : "crea"
+    User ||--|| Cart : "tiene"
+    Order ||--|{ OrderItem : "contiene"
+    Cart ||--|{ CartItem : "contiene"
+    Product ||--o{ OrderItem : "referenciado"
+    Product ||--o{ CartItem : "referenciado"
+    Product ||--o{ InventoryAlert : "dispara"
+    Product }|--|| ProductCategory : "categoría"
+    Combo ||--|{ ComboItem : "compuesto por"
+    Product ||--o{ ComboItem : "parte de"
+
+    User {
+        string id
+        string username
+        string email
+        string hashed_password
+        string role "customer|admin"
+        bool age_verified
+    }
+
+    Order {
+        string id
+        string user_id
+        string status "Pendiente..Reembolsado"
+        float total_amount
+        string payment_method
+        string shipping_zone
+    }
+
+    Product {
+        string id
+        string name
+        float price
+        int stock
+        string category
+        float net_price
+        bool active
+    }
+
+    Cart {
+        string id
+        string user_id
+        list items
+    }
+
+    InventoryAlert {
+        string product_id
+        int current_stock
+        int threshold
+        string message
+        datetime timestamp
+    }
+```
+
+### Mapa de Routers
+
+```mermaid
+graph LR
+    subgraph "FastAPI App"
+        A["/auth"] --> |"register, login, refresh, me"| AUTH[Auth]
+        V["/age-verification"] --> |"verify-age, minimum-age"| AGE[Age]
+        P["/products"] --> |"CRUD, list, filter"| PROD[Products]
+        CB["/combos"] --> |"list, admin CRUD"| COMBO[Combos]
+        C["/cart"] --> |"add, update, validate-stock"| CART[Cart]
+        O["/orders"] --> |"create, list, status"| ORD[Orders]
+        MP["/payments"] --> |"create-preference, webhook"| PAY[Payments]
+        I["/inventory"] --> |"stock, add, alerts"| INV[Inventory]
+        ADM["/admin"] --> |"stats, users, settings"| ADMIN[Admin]
+        PS["/payment-settings"] --> |"bank alias, social"| PSET[PaymentSettings]
+        PR["/pricing-settings"] --> |"dynamic pricing"| PRSET[PricingSettings]
+    end
+
+    AUTH --> JWT[(JWT)]
+    ADMIN --> DB[(MongoDB)]
+    INV --> DB
+    ORD --> DB
+    PAY --> MP_API[MercadoPago API]
+```
+
+---
+
 ## 🚀 Instalación Local
 
 ### Requisitos Previos
