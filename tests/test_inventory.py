@@ -11,8 +11,9 @@ collection.
   T2.4 — insufficient stock returns HTTP 409 with product name and
           available/requested numbers; stock is unchanged
 
-T2.1–T2.3 are marked @pytest.mark.xfail(strict=False, ...) because
-create_order has a known race condition (separate non-atomic stock
+T2.1–T2.3 were previously marked xfail due to the race condition
+in create_order (separate stock check and $inc decrement). Fixed:
+the $inc now uses a $gte guard to detect concurrent modifications.
 check and decrement) that is out of scope for this change. The
 follow-up fix-stock-bugs change will make these pass.
 
@@ -80,10 +81,6 @@ def _build_order_payload(items: list[dict]) -> dict:
 
 class TestOrderDecrementsStock:
     @pytest.mark.integration
-    @pytest.mark.xfail(
-        strict=False,
-        reason="Race condition in create_order; see fix-stock-bugs",
-    )
     async def test_order_decrements_stock(self, test_app, test_db, test_client, auth_user_dep):
         """A successful order of 1 unit must drop product stock by exactly 1.
 
@@ -136,10 +133,6 @@ class TestOrderDecrementsStock:
 
 class TestMultiItemDecrement:
     @pytest.mark.integration
-    @pytest.mark.xfail(
-        strict=False,
-        reason="Race condition in create_order; see fix-stock-bugs",
-    )
     async def test_multi_item_order_decrements_all_stocks(
         self, test_app, test_db, test_client, auth_user_dep
     ):
@@ -199,10 +192,6 @@ class TestMultiItemDecrement:
 
 class TestComboDecrement:
     @pytest.mark.integration
-    @pytest.mark.xfail(
-        strict=False,
-        reason="Race condition in create_order; see fix-stock-bugs",
-    )
     async def test_combo_order_decrements_each_component(
         self, test_app, test_db, test_client, auth_user_dep
     ):

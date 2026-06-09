@@ -10,14 +10,11 @@ scenario and use the inventory helper directly for the dedup scenario
   T2.6 — a pre-existing alert with the matching message must block a
          second insert (dedup)
 
-T2.5 is marked @pytest.mark.xfail because the current `create_order`
-implementation does not call `check_and_create_alert` — only
-inventory router endpoints do. The follow-up fix-stock-bugs change
-will make this pass.
+T2.5 now passes: create_order calls check_and_create_alert after
+stock decrement.
 
-T2.6 is not xfail: the dedup logic itself works (verified by the
-unit test test_inventory_alerts.py::TestAlertDeduplication). This
-test asserts the same contract at the integration tier.
+T2.6 verifies dedup: a pre-existing alert with matching message
+blocks a second insert.
 
 All tests marked @pytest.mark.integration.
 """
@@ -70,14 +67,6 @@ def _build_order_payload(items: list[dict]) -> dict:
 
 class TestLowStockAlertOnOrder:
     @pytest.mark.integration
-    @pytest.mark.xfail(
-        strict=False,
-        reason=(
-            "create_order does not call check_and_create_alert. "
-            "Spec says it should; current code only decrements stock. "
-            "See fix-stock-bugs change."
-        ),
-    )
     async def test_order_below_threshold_creates_alert(
         self, test_app, test_db, test_client, auth_user_dep
     ):
@@ -85,10 +74,8 @@ class TestLowStockAlertOnOrder:
 
         Per the stock-control spec: when an order causes a product's
         stock to cross below `LOW_STOCK_THRESHOLD` (10), an
-        `InventoryAlert` document MUST be created. The current
-        implementation of `create_order` only decrements stock and
-        never calls `check_and_create_alert`, so this contract is not
-        honored. Marked xfail — see fix-stock-bugs.
+        `InventoryAlert` document MUST be created. Fixed: create_order
+        now calls check_and_create_alert after stock decrement.
         """
         products = test_db["products"]
         carts = test_db["carts"]

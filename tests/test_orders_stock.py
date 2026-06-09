@@ -13,11 +13,12 @@ T3.2  PUT /inventory/{id}/stock/add
 T3.3  GET /inventory/alerts (sorted by timestamp desc)
 T3.3  PUT /inventory/{id}/stock — non-admin 403
 T3.4  POST /orders — full happy path with all stock helpers wired
+T3.5  PUT /orders/admin/{id}/status — cancel + refund
 
-T3.4 is marked @pytest.mark.xfail(strict=False, ...) because
-create_order has a known race condition (separate non-atomic check
-and decrement) tracked by the fix-stock-bugs change. T3.1, T3.2,
-T3.3 are expected to pass against the current production code.
+All tasks are expected to pass now:
+- T3.4 race condition fixed: stock $inc now uses a $gte guard
+- T3.5 indentation bug fixed: stock restoration loop properly
+  scoped inside the "is cancel/refund" guard
 
 All tests are marked @pytest.mark.endpoint. Production code is
 untouched. The minimal test app does NOT include MaintenanceModeMiddleware
@@ -27,7 +28,8 @@ Redis connection is attempted.
 Technical notes
 ---------------
 * The orders router exposes its create endpoint at "/" (a bare
-  prefix-less path), so the URL is "/".
+  prefix-less path), so the URL is "/". The order status admin
+  endpoint is at "/admin/{order_id}/status".
 * The inventory router exposes its PUT endpoints at "/{id}/stock"
   and "/{id}/stock/add", and the GET alerts endpoint at "/alerts".
 * The router reads `new_stock` and `quantity_to_add` from a
@@ -61,6 +63,8 @@ from security import (
 from tests.conftest import FAKE_USER_ID
 from models import (
     Address,
+    OrderStatus,
+    PaymentMethod,
     TokenData,
     UserRole,
 )
@@ -352,13 +356,6 @@ class TestNonAdminCannotModifyStock:
 
 class TestFullOrderEndpoint:
     @pytest.mark.endpoint
-    @pytest.mark.xfail(
-        strict=False,
-        reason=(
-            "Race condition in create_order; the pre-check and the $inc "
-            "decrement are not atomic. See fix-stock-bugs change."
-        ),
-    )
     async def test_full_order_end_to_end_decrements_stock(
         self, test_app, test_db, test_client, auth_user_dep
     ):
@@ -411,3 +408,146 @@ class TestFullOrderEndpoint:
         # Spec: an order document was written.
         order_count = await orders.count_documents({"user_id": FAKE_USER_ID})
         assert order_count == 1
+
+
+# ---------------------------------------------------------------------------
+# T3.5 — PUT /orders/admin/{id}/status (cancel + refund)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_delivered_order(orders, products, user_id: str) -> tuple[str, list[ObjectId]]:
+    """Seed an order with status=DELIVERED plus a parallel decrement
+    on the product stocks (to simulate the state after a delivered
+    order: stock has already been decremented at create time).
+
+    Returns (order_id_str, list_of_product_oids).
+    """
+    quilmes = await products.find_one({"_id": ObjectId("507f1f77bcf86cd799439011")})
+    stella = await products.find_one({"_id": ObjectId("507f1f77bcf86cd799439012")})
+    product_oids = [quilmes["_id"], stella["_id"]]
+
+    order_id = ObjectId()
+    await orders.insert_one(
+        {
+            "_id": order_id,
+            "user_id": user_id,
+            "items": [
+                {
+                    "product_id": str(quilmes["_id"]),
+                    "name": "Quilmes 1L",
+                    "quantity": 2,
+                    "price_at_purchase": 1500.0,
+                },
+                {
+                    "product_id": str(stella["_id"]),
+                    "name": "Stella Artois 1L",
+                    "quantity": 1,
+                    "price_at_purchase": 2200.0,
+                },
+            ],
+            "total_amount": 5200.0,
+            "status": OrderStatus.DELIVERED.value,
+            "shipping_address": VALID_ADDRESS.model_dump(),
+            "shipping_zone": "pickup",
+            "shipping_cost": 0.0,
+            "payment_method": PaymentMethod.MERCADO_PAGO.value,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
+    )
+
+    # Simulate the stock that was already decremented at order creation:
+    # Quilmes (stock=20) - 2 = 18; Stella (stock=5) - 1 = 4.
+    await products.update_one({"_id": quilmes["_id"]}, {"$set": {"stock": 18}})
+    await products.update_one({"_id": stella["_id"]}, {"$set": {"stock": 4}})
+
+    return str(order_id), product_oids
+
+
+class TestCancelAndRefundRestoreStock:
+    @pytest.mark.endpoint
+    async def test_cancel_status_restores_stock(
+        self, test_app, test_db, test_client, auth_admin_dep
+    ):
+        """An admin PUTs the order status to CANCELLED on a DELIVERED
+        order. Each product's stock must be incremented back by the
+        original ordered quantity.
+
+        Quilmes: 18 → 18 + 2 = 20
+        Stella:  4  → 4  + 1 = 5
+
+        Note: the router signature is
+            new_status: OrderStatus
+        (no Body() wrapper). FastAPI 0.116.1 treats an Enum without
+        Body() as a QUERY parameter, not a body parameter. We send
+        the status via ?new_status=Cancelado, matching the production
+        contract. The OpenAPI spec confirms this: query params for
+        update_order_status.
+        """
+        products = test_db["products"]
+        orders = test_db["orders"]
+
+        order_id_str, product_oids = await _seed_delivered_order(
+            orders, products, FAKE_USER_ID
+        )
+
+        _mount_orders_and_app(test_app)
+        _apply_admin_overrides(test_app, auth_admin_dep)
+
+        response = await test_client.put(
+            f"/admin/{order_id_str}/status",
+            params={"new_status": OrderStatus.CANCELLED.value},
+        )
+
+        # Spec: 200 with the updated order.
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["status"] == OrderStatus.CANCELLED.value
+
+        # Spec: stock restored for every line item.
+        quilmes = await products.find_one(
+            {"_id": ObjectId("507f1f77bcf86cd799439011")}
+        )
+        stella = await products.find_one(
+            {"_id": ObjectId("507f1f77bcf86cd799439012")}
+        )
+        assert quilmes["stock"] == 20
+        assert stella["stock"] == 5
+
+    @pytest.mark.endpoint
+    async def test_refund_status_restores_stock(
+        self, test_app, test_db, test_client, auth_admin_dep
+    ):
+        """Same as the cancel case but with status=REFUNDED.
+
+        The spec says both CANCELLED and REFUNDED must restore stock.
+        Sends new_status as a query param (see the cancel test for the
+        rationale on FastAPI's Enum-as-query behavior).
+        """
+        products = test_db["products"]
+        orders = test_db["orders"]
+
+        order_id_str, _ = await _seed_delivered_order(
+            orders, products, FAKE_USER_ID
+        )
+
+        _mount_orders_and_app(test_app)
+        _apply_admin_overrides(test_app, auth_admin_dep)
+
+        response = await test_client.put(
+            f"/admin/{order_id_str}/status",
+            params={"new_status": OrderStatus.REFUNDED.value},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["status"] == OrderStatus.REFUNDED.value
+
+        quilmes = await products.find_one(
+            {"_id": ObjectId("507f1f77bcf86cd799439011")}
+        )
+        stella = await products.find_one(
+            {"_id": ObjectId("507f1f77bcf86cd799439012")}
+        )
+        assert quilmes["stock"] == 20
+        assert stella["stock"] == 5
