@@ -1,8 +1,8 @@
 ﻿from bson import ObjectId
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import ConfigDict,  BaseModel, Field, EmailStr
 from pydantic_core import core_schema
 from typing import List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic.json_schema import JsonSchemaValue
 import enum
 
@@ -94,10 +94,11 @@ class Product(BaseModel):
     net_price: Optional[float] = Field(None, ge=0, description="Precio de costo o neto del producto", exclude=True)
     active: bool = Field(default=True, description="Indica si el producto está habilitado para venta")
     
-    class Config:
-        populate_by_name = True # Permite usar alias en el ID al crear o actualizar
-        json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True
+    )
 
 class AdminProduct(Product):
     """Versión extendida del producto para administradores que incluye el precio neto"""
@@ -118,10 +119,11 @@ class ProductUpdate(BaseModel):
     active: Optional[bool] = None
     profit_percentage: Optional[float] = Field(None, description="Porcentaje de ganancia para calcular el precio automáticamente")
 
-    class Config:
-        populate_by_name = True
-        json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True,
+    )
 
 
 # Modelos para Usuarios
@@ -143,12 +145,13 @@ class UserResponse(BaseModel):
     role: UserRole = UserRole.CUSTOMER # Por defecto, los nuevos usuarios son clientes
     age_verified: bool = False # Se actualizará después de la verificación
     birth_date: datetime
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     
-    class Config:
-        populate_by_name = True
-        json_encoders = {ObjectId: lambda v: str(v)}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True,
+    )
 
 
 # Modelos para la Autenticación JWT
@@ -175,13 +178,14 @@ class RefreshToken(BaseModel):
     token: str = Field(..., description="El refresh token hasheado")
     user_id: str = Field(..., description="ID del usuario propietario del token")
     expires_at: datetime = Field(..., description="Fecha de expiración del refresh token")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     revoked: bool = Field(default=False, description="Si el token ha sido revocado")
     
-    class Config:
-        populate_by_name = True
-        json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True,
+    )
 
 class AgeVerificationResponse(BaseModel):
     access_token: str
@@ -251,10 +255,11 @@ class OrderItem(BaseModel):
     name: str = Field(..., description="Nombre del producto al momento de la compra")
     quantity: int = Field(..., gt=0, description="Cantidad del producto")
     price_at_purchase: float = Field(..., gt=0, description="Precio unitario del producto al momento de la compra")
-    class Config:
-        populate_by_name = True
-        json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True,
+    )
 
 class Address(BaseModel):
     street: str
@@ -281,11 +286,12 @@ class Order(BaseModel):
     payment_method: Optional[PaymentMethod] = None  # Método de pago seleccionado
     payment_id: Optional[str] = None # ID de la transacción de pago
     payment_preference_id: Optional[str] = None # ID de la preferencia de Mercado Pago
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
 
 # Modelos para Pagos (Simplificado para la intención de la API)
 class PaymentRequest(BaseModel):
@@ -303,11 +309,12 @@ class PaymentResponseModel(BaseModel): # Renombrado para evitar conflicto con Pa
     currency: str = "ARS" # O la moneda predeterminada
     status: PaymentStatus = PaymentStatus.PENDING
     transaction_details: Optional[dict] = None # Detalles devueltos por la pasarela de pago
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
 
 # Modelos para Gestión de Inventario / Alertas
 class InventoryAlert(BaseModel):
@@ -317,10 +324,11 @@ class InventoryAlert(BaseModel):
     current_stock: int
     threshold: int
     message: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
 
 # Modelos para Configuración de Pagos y Contacto
 class PaymentSettings(BaseModel):
@@ -331,13 +339,14 @@ class PaymentSettings(BaseModel):
     instagram_url: Optional[str] = Field(None, description="URL de Instagram del negocio")
     facebook_url: Optional[str] = Field(None, description="URL de Facebook del negocio")
     email: Optional[str] = Field(None, description="Email de contacto del negocio")
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     updated_by: Optional[str] = None  # user_id del admin que actualizó
     
-    class Config:
-        populate_by_name = True
-        json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True,
+    )
 
 class PaymentSettingsUpdate(BaseModel):
     """Modelo para actualizar configuración de pagos y contacto"""
@@ -369,13 +378,14 @@ class ShippingSettings(BaseModel):
     pickup_description: str = Field(default="🏪 Retiro en Persona - GRATIS", description="Descripción de la opción de retiro")
     
     # Metadata
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     updated_by: Optional[str] = None  # user_id del admin que actualizó
     
-    class Config:
-        populate_by_name = True
-        json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True,
+    )
 
 # Modelos para Combos de Productos
 class ComboItem(BaseModel):
@@ -392,13 +402,14 @@ class Combo(BaseModel):
     image_url: Optional[str] = Field(None, description="URL de la imagen del combo (CDN)")
     items: List[ComboItem] = Field(..., min_length=1, description="Productos que componen el combo")
     active: bool = Field(default=True, description="Si el combo está activo o no")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     
-    class Config:
-        populate_by_name = True
-        json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True,
+    )
 
 class ComboCreate(BaseModel):
     """Modelo para crear un combo"""
@@ -442,10 +453,11 @@ class ComboDetailed(BaseModel):
     total_items_cost: Optional[float] = Field(None, description="Suma del precio de todos los productos individuales")
     savings: Optional[float] = Field(None, description="Ahorro al comprar el combo (total_items_cost - price)")
     
-    class Config:
-        populate_by_name = True
-        json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True,
+    )
 
 
 
@@ -459,13 +471,14 @@ class DynamicPricingSettings(BaseModel):
     end_day: int = Field(default=7, ge=1, le=7, description="Día de fin")
     start_hour: int = Field(default=20, ge=0, le=23, description="Hora de inicio (0-23)")
     end_hour: int = Field(default=6, ge=0, le=23, description="Hora de fin (0-23)")
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     updated_by: Optional[str] = None  # user_id del admin que actualizó
     
-    class Config:
-        populate_by_name = True
-        json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True,
+    )
 
 class DynamicPricingUpdate(BaseModel):
     """Modelo para actualizar configuración de precios dinámicos"""
@@ -490,10 +503,11 @@ class SystemSettings(BaseModel):
     maintenance_mode: bool = Field(default=False, description="Activar o desactivar modo mantenimiento")
     maintenance_message: str = Field(default="Estamos realizando mejoras. Volvemos pronto.", description="Mensaje para mostrar al usuario")
     allowed_ips: List[str] = Field(default=[], description="Lista de IPs permitidas durante mantenimiento (opcional)")
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     updated_by: Optional[str] = None
     
-    class Config:
-        populate_by_name = True
-        json_encoders = {ObjectId: str}
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True,
+    )
