@@ -25,6 +25,7 @@ Marked @pytest.mark.unit and @pytest.mark.xfail_bug where appropriate.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -285,7 +286,7 @@ class TestUpdateStockAtomic:
             ],
         )
 
-        a_after, b_after, c_after = await (
+        a_after, b_after, c_after = await asyncio.gather(
             coll.find_one({"_id": a}),
             coll.find_one({"_id": b}),
             coll.find_one({"_id": c}),
@@ -335,7 +336,7 @@ class TestRollbackStock:
             ],
         )
 
-        a_after, b_after, c_after = await (
+        a_after, b_after, c_after = await asyncio.gather(
             coll.find_one({"_id": a}),
             coll.find_one({"_id": b}),
             coll.find_one({"_id": c}),
