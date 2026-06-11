@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     MERCADOPAGO_WEBHOOK_SECRET: Optional[str] = None  # Para validar firma de webhooks
     
     # URL base para tus webhooks (importante para desarrollo y producción)
-    # En desarrollo usaremos ngrok, en producción será tu dominio
+    # En desarrollo apuntamos al Cloudflare Tunnel local, en producción será tu dominio
     WEBHOOK_BASE_URL: str = "http://localhost:8000"
     
     # URL del frontend para redirecciones después del pago
