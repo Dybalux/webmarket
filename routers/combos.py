@@ -3,11 +3,12 @@ from typing import List, Optional
 from bson import ObjectId
 from datetime import datetime, timezone
 
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
 from models import Combo, ComboCreate, ComboUpdate, ComboDetailed, ComboItemDetailed, TokenData, DynamicPricingSettings
-from database import get_collection
+from database import get_collection, get_database
 from security import get_current_admin_user
-from pricing_helpers import get_adjusted_price
-from routers.pricing_settings import get_pricing_settings_collection
+from services.pricing import get_adjusted_price
 
 import logging
 
@@ -19,7 +20,9 @@ router = APIRouter()
 # --- Endpoint Público ---
 
 @router.get("/", response_model=List[ComboDetailed])
-async def get_active_combos():
+async def get_active_combos(
+    db: AsyncIOMotorDatabase = Depends(get_database)
+):
     """
     Obtiene todos los combos activos con información detallada de productos.
     Incluye nombre, precio, imagen y stock de cada producto en el combo.
@@ -36,11 +39,6 @@ async def get_active_combos():
         
         async for combo_doc in combos_cursor:
             combos_list.append(combo_doc)
-        
-        # Obtener configuración de precios dinámicos
-        pricing_settings_collection = get_collection("pricing_settings")
-        pricing_doc = await pricing_settings_collection.find_one({})
-        pricing_settings = DynamicPricingSettings(**pricing_doc) if pricing_doc else DynamicPricingSettings()
 
         if not combos_list:
             return []
@@ -85,7 +83,7 @@ async def get_active_combos():
             
             # Calcular el costo total de los productos individuales
             total_items_cost = sum(item.price * item.quantity for item in enriched_items)
-            combo_price = get_adjusted_price(combo["price"], pricing_settings)
+            combo_price = await get_adjusted_price(db, combo["price"])
             savings = round(total_items_cost - combo_price, 2)
             
             # Crear combo enriquecido
@@ -118,7 +116,10 @@ async def get_active_combos():
 
 
 @router.get("/{combo_id}", response_model=Combo)
-async def get_combo_by_id(combo_id: str):
+async def get_combo_by_id(
+    combo_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_database)
+):
     """
     Obtiene un combo específico por su ID.
     Endpoint público - no requiere autenticación.
@@ -140,13 +141,9 @@ async def get_combo_by_id(combo_id: str):
             )
         
         combo_obj = Combo(**combo)
-        # Obtener configuración de precios dinámicos
-        pricing_settings_collection = get_collection("pricing_settings")
-        pricing_doc = await pricing_settings_collection.find_one({})
-        pricing_settings = DynamicPricingSettings(**pricing_doc) if pricing_doc else DynamicPricingSettings()
         
         # Aplicar precio dinámico
-        combo_obj.price = get_adjusted_price(combo_obj.price, pricing_settings)
+        combo_obj.price = await get_adjusted_price(db, combo_obj.price)
         return combo_obj
 
     
