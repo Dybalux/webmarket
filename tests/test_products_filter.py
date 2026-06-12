@@ -21,20 +21,18 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from routers import pricing_settings as pricing_settings_router
 from routers import products as products_router
-from routers.pricing_settings import get_pricing_settings_collection
 
 
-def _mount_products_and_app(test_app: FastAPI) -> None:
-    """Mount the products router; pricing_settings is a dep, not a route here."""
+def _mount_products_app(test_app: FastAPI) -> None:
+    """Mount the products router on the test app.
+
+    The pricing_settings router is no longer needed here — the
+    refactored products router uses services.pricing.get_adjusted_price
+    which reads from db["pricing_settings"] through the already-
+    overridden get_database dependency.
+    """
     test_app.include_router(products_router.router)
-    test_app.include_router(pricing_settings_router.router)
-
-
-def _override_pricing_settings(test_app: FastAPI, db) -> None:
-    """Override get_pricing_settings_collection so it reads from the in-memory db."""
-    test_app.dependency_overrides[get_pricing_settings_collection] = lambda: db["pricing_settings"]
 
 
 # ---------------------------------------------------------------------------
@@ -54,8 +52,7 @@ class TestProductsOutOfStockFilter:
         GET `/`. The router does NOT require auth, but the conftest
         applies the user override anyway — that's harmless.
         """
-        _mount_products_and_app(test_app)
-        _override_pricing_settings(test_app, test_db)
+        _mount_products_app(test_app)
         for dep, override in auth_user_dep.items():
             test_app.dependency_overrides[dep] = override
 
@@ -79,8 +76,7 @@ class TestProductsOutOfStockFilter:
 
         The flag is meant for admins. We mount the admin auth override.
         """
-        _mount_products_and_app(test_app)
-        _override_pricing_settings(test_app, test_db)
+        _mount_products_app(test_app)
         for dep, override in auth_admin_dep.items():
             test_app.dependency_overrides[dep] = override
 
