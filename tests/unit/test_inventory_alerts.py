@@ -16,18 +16,17 @@ import pytest
 from bson import ObjectId
 from mongomock_motor import AsyncMongoMockClient
 
-from routers.inventory import LOW_STOCK_THRESHOLD, check_and_create_alert
+from services.inventory import LOW_STOCK_THRESHOLD, check_and_create_alert
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _fresh_collections():
-    """Return a (products, alerts) pair of fresh mongomock collections."""
+def _fresh_db():
+    """Return a fresh mongomock database with pre-seeded product collections."""
     client = AsyncMongoMockClient()
-    db = client["webmarket_test"]
-    return db["products"], db["inventory_alerts"]
+    return client["webmarket_test"]
 
 
 async def _seed_product(products_coll, *, name: str, stock: int) -> ObjectId:
@@ -54,10 +53,12 @@ class TestCheckAndCreateAlert:
     @pytest.mark.unit
     async def test_alert_created_at_threshold(self):
         """stock == LOW_STOCK_THRESHOLD → alert is inserted."""
-        products, alerts = _fresh_collections()
+        db = _fresh_db()
+        products = db["products"]
+        alerts = db["inventory_alerts"]
         oid = await _seed_product(products, name="Quilmes 1L", stock=LOW_STOCK_THRESHOLD)
 
-        await check_and_create_alert(products, alerts, str(oid))
+        await check_and_create_alert(db, str(oid))
 
         inserted = await alerts.find_one({"product_id": str(oid)})
         assert inserted is not None
@@ -68,10 +69,12 @@ class TestCheckAndCreateAlert:
     @pytest.mark.unit
     async def test_no_alert_above_threshold(self):
         """stock > LOW_STOCK_THRESHOLD → no alert inserted."""
-        products, alerts = _fresh_collections()
+        db = _fresh_db()
+        products = db["products"]
+        alerts = db["inventory_alerts"]
         oid = await _seed_product(products, name="Stella 1L", stock=15)
 
-        await check_and_create_alert(products, alerts, str(oid))
+        await check_and_create_alert(db, str(oid))
 
         count = await alerts.count_documents({"product_id": str(oid)})
         assert count == 0
@@ -79,10 +82,12 @@ class TestCheckAndCreateAlert:
     @pytest.mark.unit
     async def test_alert_created_well_below_threshold(self):
         """stock << LOW_STOCK_THRESHOLD → alert is inserted."""
-        products, alerts = _fresh_collections()
+        db = _fresh_db()
+        products = db["products"]
+        alerts = db["inventory_alerts"]
         oid = await _seed_product(products, name="Fernet 750ml", stock=2)
 
-        await check_and_create_alert(products, alerts, str(oid))
+        await check_and_create_alert(db, str(oid))
 
         inserted = await alerts.find_one({"product_id": str(oid)})
         assert inserted is not None
@@ -92,11 +97,13 @@ class TestCheckAndCreateAlert:
     @pytest.mark.unit
     async def test_no_alert_for_missing_product(self):
         """Missing product → no alert (function silently returns)."""
-        products, alerts = _fresh_collections()
+        db = _fresh_db()
+        products = db["products"]
+        alerts = db["inventory_alerts"]
         missing_id = str(ObjectId())
 
         # Should not raise.
-        await check_and_create_alert(products, alerts, missing_id)
+        await check_and_create_alert(db, missing_id)
 
         count = await alerts.count_documents({"product_id": missing_id})
         assert count == 0
@@ -115,30 +122,34 @@ class TestAlertDeduplication:
         current stock value, so when stock is unchanged the message is
         identical and the second call must short-circuit.
         """
-        products, alerts = _fresh_collections()
+        db = _fresh_db()
+        products = db["products"]
+        alerts = db["inventory_alerts"]
         oid = await _seed_product(products, name="Quilmes 1L", stock=8)
 
         # First call → alert inserted.
-        await check_and_create_alert(products, alerts, str(oid))
+        await check_and_create_alert(db, str(oid))
         first_count = await alerts.count_documents({"product_id": str(oid)})
         assert first_count == 1
 
         # Second call (no stock change) → no new alert.
-        await check_and_create_alert(products, alerts, str(oid))
+        await check_and_create_alert(db, str(oid))
         second_count = await alerts.count_documents({"product_id": str(oid)})
         assert second_count == 1
 
     @pytest.mark.unit
     async def test_new_alert_inserted_when_stock_changes(self):
         """If stock drops, the message changes, so a new alert is created."""
-        products, alerts = _fresh_collections()
+        db = _fresh_db()
+        products = db["products"]
+        alerts = db["inventory_alerts"]
         oid = await _seed_product(products, name="Quilmes 1L", stock=8)
 
         # First alert at stock=8
-        await check_and_create_alert(products, alerts, str(oid))
+        await check_and_create_alert(db, str(oid))
         # Stock drops to 5 → message changes
         await products.update_one({"_id": oid}, {"$set": {"stock": 5}})
-        await check_and_create_alert(products, alerts, str(oid))
+        await check_and_create_alert(db, str(oid))
 
         count = await alerts.count_documents({"product_id": str(oid)})
         assert count == 2
