@@ -7,7 +7,7 @@ from models import Order, OrderCreate, OrderItem, OrderStatus, Product, Cart, To
 from database import get_database, get_collection
 from security import get_current_active_user_id, get_current_verified_user, get_current_admin_user
 from email_service import send_new_order_notification
-from pricing_helpers import get_adjusted_price
+from services.pricing import get_adjusted_price
 from routers.inventory import check_and_create_alert, get_alerts_collection
 # from stock_helpers import validate_and_reserve_stock, update_stock_atomic  # Descomenta cuando uses MongoDB M10+
 import logging
@@ -184,6 +184,7 @@ async def create_order(
     products_collection = Depends(get_products_collection),
     orders_collection = Depends(get_orders_collection),
     alerts_collection = Depends(get_alerts_collection),
+    db = Depends(get_database),
     current_verified_user: TokenData = Depends(get_current_verified_user)
 ):
     """
@@ -207,12 +208,6 @@ async def create_order(
     cart = Cart(**cart_db)
     order_items: List[OrderItem] = []
     total_amount = 0.0
-
-    # Obtener configuración de precios dinámicos
-    pricing_settings_collection = get_collection("pricing_settings")
-    pricing_doc = await pricing_settings_collection.find_one({})
-    pricing_settings = DynamicPricingSettings(**pricing_doc) if pricing_doc else DynamicPricingSettings()
-
 
     # 2. Iterar sobre los ítems del carrito para validar y construir el pedido
     # Ahora soportamos tanto productos individuales como combos
@@ -250,7 +245,7 @@ async def create_order(
                     product_id=ObjectId(item.product_id),
                     name=f"{combo_data['combo_name']} (Combo)",
                     quantity=item.quantity,
-                    price_at_purchase=get_adjusted_price(combo_data["combo_price"], pricing_settings)
+                    price_at_purchase=await get_adjusted_price(db, combo_data["combo_price"])
                 )
                 order_items.append(order_item)
                 total_amount += order_item.price_at_purchase * order_item.quantity
@@ -274,7 +269,7 @@ async def create_order(
                 product_id=product["_id"],
                 name=product["name"],
                 quantity=item.quantity,
-                price_at_purchase=get_adjusted_price(product["price"], pricing_settings)
+                price_at_purchase=await get_adjusted_price(db, product["price"])
             )
             order_items.append(order_item)
             total_amount += order_item.price_at_purchase * order_item.quantity

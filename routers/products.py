@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status , Query, Response
 from typing import List, Optional
 from bson import ObjectId
 
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
 from models import Product, ProductCategory, UserRole, TokenData, PaginationMeta, DynamicPricingSettings, AdminProduct, ProductUpdate
 from database import get_database, get_collection
 from security import get_current_admin_user # Importamos la dependencia para admins
-from pricing_helpers import get_adjusted_price
-from routers.pricing_settings import get_pricing_settings_collection
+from services.pricing import get_adjusted_price
 from datetime import datetime
 import logging
 import math
@@ -62,7 +63,7 @@ async def read_products(
     include_out_of_stock: bool = Query(False, description="Incluir productos sin stock (para administradores)"),
     page: int = Query(1, ge=1, description="Número de página (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Tamaño de página"),
-    pricing_settings_collection = Depends(get_pricing_settings_collection)
+    db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     """
     Obtiene una lista paginada de productos con opciones de filtrado y búsqueda.
@@ -102,17 +103,13 @@ async def read_products(
     skip = (page - 1) * page_size
     total_pages = math.ceil(total / page_size) if total > 0 else 0
     
-    # Obtener configuración de precios dinámicos
-    pricing_doc = await pricing_settings_collection.find_one({})
-    pricing_settings = DynamicPricingSettings(**pricing_doc) if pricing_doc else DynamicPricingSettings()
-
     # Obtener productos paginados
     products_cursor = products_collection.find(query).skip(skip).limit(page_size)
     products_list = []
     async for product_doc in products_cursor:
         product = Product(**product_doc)
         # Aplicar precio dinámico
-        product.price = get_adjusted_price(product.price, pricing_settings)
+        product.price = await get_adjusted_price(db, product.price)
         products_list.append(product)
     
     # Construir metadatos de paginación
@@ -134,7 +131,7 @@ async def read_products(
 async def read_product(
     product_id: str,
     products_collection = Depends(get_products_collection),
-    pricing_settings_collection = Depends(get_pricing_settings_collection)
+    db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     """
     Obtiene los detalles de un producto específico por su ID.
@@ -146,11 +143,8 @@ async def read_product(
     product_db = await products_collection.find_one({"_id": ObjectId(product_id), "active": True})
     if product_db:
         product = Product(**product_db)
-        # Obtener configuración de precios dinámicos
-        pricing_doc = await pricing_settings_collection.find_one({})
-        pricing_settings = DynamicPricingSettings(**pricing_doc) if pricing_doc else DynamicPricingSettings()
         # Aplicar precio dinámico
-        product.price = get_adjusted_price(product.price, pricing_settings)
+        product.price = await get_adjusted_price(db, product.price)
         return product
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado.")
 
