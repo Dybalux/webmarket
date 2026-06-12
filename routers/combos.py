@@ -9,6 +9,8 @@ from models import Combo, ComboCreate, ComboUpdate, ComboDetailed, ComboItemDeta
 from database import get_collection, get_database
 from security import get_current_admin_user
 from services.pricing import get_adjusted_price
+from services.combos import list_active_combos, get_combo_by_id as _svc_get_combo_by_id
+from services.exceptions import NotFoundError
 
 import logging
 
@@ -30,82 +32,7 @@ async def get_active_combos(
     Endpoint público - no requiere autenticación.
     """
     try:
-        combos_collection = get_collection("combos")
-        products_collection = get_collection("products")
-        
-        # Obtener todos los combos activos
-        combos_cursor = combos_collection.find({"active": True}).sort("created_at", -1)
-        combos_list = []
-        
-        async for combo_doc in combos_cursor:
-            combos_list.append(combo_doc)
-
-        if not combos_list:
-            return []
-        
-        # OPTIMIZACIÓN: Obtener todos los product_ids de todos los combos
-        all_product_ids = set()
-        for combo in combos_list:
-            for item in combo.get("items", []):
-                all_product_ids.add(ObjectId(item["product_id"]))
-        
-        # Bulk query para obtener todos los productos de una vez
-        products_cursor = products_collection.find(
-            {"_id": {"$in": list(all_product_ids)}},
-            {"name": 1, "price": 1, "image_url": 1, "stock": 1}
-        )
-        products_dict = {str(p["_id"]): p async for p in products_cursor}
-        
-        # Construir respuesta enriquecida
-        enriched_combos = []
-        
-        for combo in combos_list:
-            # Enriquecer items del combo con información de productos
-            enriched_items = []
-            
-            for item in combo.get("items", []):
-                product_id = item["product_id"]
-                
-                if product_id in products_dict:
-                    product = products_dict[product_id]
-                    enriched_item = ComboItemDetailed(
-                        product_id=product_id,
-                        quantity=item["quantity"],
-                        name=product["name"],
-                        price=product["price"],
-                        image_url=product.get("image_url"),
-                        stock=product.get("stock", 0)
-                    )
-                    enriched_items.append(enriched_item)
-                else:
-                    # Producto no encontrado - skip
-                    logger.warning(f"Producto {product_id} del combo {combo['_id']} no encontrado")
-            
-            # Calcular el costo total de los productos individuales
-            total_items_cost = sum(item.price * item.quantity for item in enriched_items)
-            combo_price = await get_adjusted_price(db, combo["price"])
-            savings = round(total_items_cost - combo_price, 2)
-            
-            # Crear combo enriquecido
-            enriched_combo = ComboDetailed(
-                _id=combo["_id"],
-                name=combo["name"],
-                description=combo.get("description"),
-                price=combo_price,
-                image_url=combo.get("image_url"),
-
-                items=enriched_items,
-                active=combo.get("active", True),
-                created_at=combo.get("created_at"),
-                updated_at=combo.get("updated_at"),
-                total_items_cost=round(total_items_cost, 2),
-                savings=savings
-            )
-            enriched_combos.append(enriched_combo)
-        
-        logger.info(f"Se obtuvieron {len(enriched_combos)} combos activos con información detallada.")
-        return enriched_combos
-    
+        return await list_active_combos(db)
     except Exception as e:
         logger.error(f"Error al obtener combos: {e}", exc_info=True)
         raise HTTPException(
@@ -131,22 +58,12 @@ async def get_combo_by_id(
         )
     
     try:
-        combos_collection = get_collection("combos")
-        combo = await combos_collection.find_one({"_id": ObjectId(combo_id), "active": True})
-        
-        if not combo:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Combo no encontrado."
-            )
-        
-        combo_obj = Combo(**combo)
-        
-        # Aplicar precio dinámico
-        combo_obj.price = await get_adjusted_price(db, combo_obj.price)
-        return combo_obj
-
-    
+        return await _svc_get_combo_by_id(db, combo_id)
+    except NotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Combo no encontrado."
+        )
     except HTTPException:
         raise
     except Exception as e:
