@@ -136,7 +136,7 @@ class TestAlertDedup:
         directly (the only public surface that does dedup) and assert
         the count stays at 1.
         """
-        from routers.inventory import check_and_create_alert
+        from services.inventory import _check_and_create_alert as check_and_create_alert
 
         products = test_db["products"]
         alerts = test_db["inventory_alerts"]
@@ -162,7 +162,7 @@ class TestAlertDedup:
         await products.update_one({"_id": malbec["_id"]}, {"$set": {"stock": 8}})
 
         # First call would normally insert, but the matching message blocks it.
-        await check_and_create_alert(products, alerts, product_id_str)
+        await check_and_create_alert(test_db, product_id_str)
 
         # Still exactly one alert — no duplicate.
         count = await alerts.count_documents({"product_id": product_id_str})
