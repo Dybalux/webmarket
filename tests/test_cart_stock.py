@@ -13,8 +13,10 @@ T3.7  GET /products (endpoint layer complement to T2.7)
         * include_out_of_stock=true includes zero-stock (admin)
 
 The cart tests mount the cart router on the minimal test app. The
-products tests mount both the products and the pricing_settings
-routers (pricing_settings is a dependency of the products router).
+products tests mount the products router. The pricing_settings
+override is no longer needed — the refactored products router uses
+services.pricing.get_adjusted_price which reads from db through
+the already-overridden get_database dependency.
 
 All tests are marked @pytest.mark.endpoint. Production code is
 untouched.
@@ -41,9 +43,7 @@ from bson import ObjectId
 from fastapi import FastAPI
 
 from routers import cart as cart_router
-from routers import pricing_settings as pricing_settings_router
 from routers import products as products_router
-from routers.pricing_settings import get_pricing_settings_collection
 from tests.conftest import FAKE_USER_ID
 
 
@@ -57,17 +57,14 @@ def _mount_cart_and_app(test_app: FastAPI) -> None:
     test_app.include_router(cart_router.router)
 
 
-def _mount_products_and_app(test_app: FastAPI) -> None:
-    """Mount the products router; pricing_settings is a dep, not a route here."""
+def _mount_products_app(test_app: FastAPI) -> None:
+    """Mount the products router on the test app.
+
+    No pricing_settings override needed — the refactored router uses
+    services.pricing.get_adjusted_price which reads directly from
+    the already-overridden get_database dependency.
+    """
     test_app.include_router(products_router.router)
-    test_app.include_router(pricing_settings_router.router)
-
-
-def _override_pricing_settings(test_app: FastAPI, db) -> None:
-    """Override get_pricing_settings_collection so it reads from the in-memory db."""
-    test_app.dependency_overrides[get_pricing_settings_collection] = lambda: db[
-        "pricing_settings"
-    ]
 
 
 def _apply_user_overrides(test_app: FastAPI, auth_user_dep) -> None:
@@ -231,8 +228,7 @@ class TestProductsEndpointRouting:
         must exclude the stock=0 SKU (Fernet Branca) and include the
         in-stock ones.
         """
-        _mount_products_and_app(test_app)
-        _override_pricing_settings(test_app, test_db)
+        _mount_products_app(test_app)
         _apply_user_overrides(test_app, auth_user_dep)
 
         response = await test_client.get("/")
@@ -251,8 +247,7 @@ class TestProductsEndpointRouting:
         """Endpoint-layer mirror of T2.7b: GET /products/?include_out_of_stock=true
         must include the zero-stock SKU.
         """
-        _mount_products_and_app(test_app)
-        _override_pricing_settings(test_app, test_db)
+        _mount_products_app(test_app)
         _apply_admin_overrides(test_app, auth_admin_dep)
 
         response = await test_client.get("/?include_out_of_stock=true")
