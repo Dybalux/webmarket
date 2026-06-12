@@ -3,14 +3,12 @@ from typing import List
 from bson import ObjectId
 
 from models import Product, InventoryAlert, TokenData
-from database import get_database, get_collection
+from database import get_database
 from security import get_current_admin_user
 from services.inventory import (
     update_stock as _update_stock,
     add_stock as _add_stock,
     get_alerts as _get_alerts,
-    check_and_create_alert as _svc_check_and_create_alert,
-    LOW_STOCK_THRESHOLD as _LOW_STOCK_THRESHOLD,
 )
 from services.exceptions import NotFoundError
 import logging
@@ -85,28 +83,4 @@ async def get_inventory_alerts(
     return await _get_alerts(db, limit)
 
 
-# ---------------------------------------------------------------------------
-# Backward-compat shims — to be removed in PR #4 (OrdersService refactor)
-# ---------------------------------------------------------------------------
 
-# Re-export LOW_STOCK_THRESHOLD so existing imports from routers.inventory
-# (e.g. tests/unit/test_inventory_alerts.py before fixture update) still work.
-LOW_STOCK_THRESHOLD = _LOW_STOCK_THRESHOLD
-
-
-async def check_and_create_alert(
-    products_collection, alerts_collection, product_id: str
-):
-    """Backward-compat wrapper — delegates to services.inventory.check_and_create_alert.
-
-    Preserves the old (products_col, alerts_col, product_id) signature so
-    routers/orders.py continues to work until PR #4 (OrdersService refactor)
-    removes this shim and passes db directly.
-    """
-    db = products_collection.database
-    return await _svc_check_and_create_alert(db, product_id)
-
-
-def get_alerts_collection(db=Depends(get_database)):
-    """Backward-compat dep for routers/orders.py — remove in PR #4."""
-    return get_collection("inventory_alerts")
