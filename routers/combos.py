@@ -1,16 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from typing import List, Optional
+from typing import List
 from bson import ObjectId
-from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from models import Combo, ComboCreate, ComboUpdate, ComboDetailed, ComboItemDetailed, TokenData, DynamicPricingSettings
-from database import get_collection, get_database
+from models import Combo, ComboCreate, ComboUpdate, ComboDetailed, TokenData
+from database import get_database
 from security import get_current_admin_user
-from services.pricing import get_adjusted_price
-from services.combos import list_active_combos, get_combo_by_id as _svc_get_combo_by_id
-from services.exceptions import NotFoundError
+from services.combos import (
+    list_active_combos,
+    get_combo_by_id as _svc_get_combo_by_id,
+    list_all_combos,
+    create_combo as _svc_create_combo,
+    update_combo as _svc_update_combo,
+    delete_combo as _svc_delete_combo,
+)
+from services.exceptions import InternalError, NotFoundError, ValidationError
 
 import logging
 
@@ -78,6 +83,7 @@ async def get_combo_by_id(
 
 @router.get("/admin/all", response_model=List[ComboDetailed], tags=["Admin"])
 async def get_all_combos_admin(
+    db: AsyncIOMotorDatabase = Depends(get_database),
     current_admin_user: TokenData = Depends(get_current_admin_user),
     include_inactive: bool = Query(False, description="Incluir combos inactivos")
 ):
@@ -86,83 +92,7 @@ async def get_all_combos_admin(
     Incluye nombres de productos, cálculo de costos y ahorros.
     """
     try:
-        combos_collection = get_collection("combos")
-        products_collection = get_collection("products")
-        
-        query = {} if include_inactive else {"active": True}
-        combos_cursor = combos_collection.find(query).sort("created_at", -1)
-        
-        combos_list = []
-        async for combo in combos_cursor:
-            combos_list.append(combo)
-            
-        if not combos_list:
-            return []
-
-        # 1. Obtener todos los IDs de productos requeridos para hacer una sola consulta (Optimización)
-        all_product_ids = set()
-        for combo in combos_list:
-            for item in combo.get("items", []):
-                # Asegurar que sea ObjectId
-                try:
-                    pid = item["product_id"]
-                    if isinstance(pid, str):
-                        all_product_ids.add(ObjectId(pid))
-                    else:
-                        all_product_ids.add(pid)
-                except:
-                    continue
-        
-        # 2. Buscar productos en DB
-        products_cursor = products_collection.find(
-            {"_id": {"$in": list(all_product_ids)}},
-            {"name": 1, "price": 1, "image_url": 1, "stock": 1}
-        )
-        products_dict = {str(p["_id"]): p async for p in products_cursor}
-        
-        # 3. Construir respuesta enriquecida
-        enriched_combos = []
-        
-        for combo in combos_list:
-            enriched_items = []
-            
-            # Enriquecer items
-            for item in combo.get("items", []):
-                pid_str = str(item["product_id"])
-                
-                if pid_str in products_dict:
-                    prod_data = products_dict[pid_str]
-                    enriched_items.append(ComboItemDetailed(
-                        product_id=pid_str,
-                        quantity=item["quantity"],
-                        name=prod_data.get("name", "Producto Desconocido"),
-                        price=prod_data.get("price", 0.0),
-                        image_url=prod_data.get("image_url"),
-                        stock=prod_data.get("stock", 0)
-                    ))
-            
-            # Calcular totales (Usamos el precio base del combo para Admin, sin precios dinámicos temporales)
-            total_items_cost = sum(item.price * item.quantity for item in enriched_items)
-            combo_base_price = combo["price"]
-            savings = round(total_items_cost - combo_base_price, 2)
-            
-            enriched_combos.append(ComboDetailed(
-                _id=combo["_id"],
-                name=combo["name"],
-                description=combo.get("description"),
-                price=combo_base_price,
-                image_url=combo.get("image_url"),
-                items=enriched_items,
-                active=combo.get("active", True),
-                created_at=combo.get("created_at"),
-                updated_at=combo.get("updated_at"),
-                total_items_cost=round(total_items_cost, 2),
-                savings=savings
-            ))
-            
-        logger.info(f"Admin {current_admin_user.username} consultó combos detallados.")
-        return enriched_combos
-    
+        return await list_all_combos(db, include_inactive)
     except Exception as e:
         logger.error(f"Error al obtener combos admin: {e}", exc_info=True)
         raise HTTPException(
@@ -174,6 +104,7 @@ async def get_all_combos_admin(
 @router.post("/admin", response_model=Combo, status_code=status.HTTP_201_CREATED, tags=["Admin"])
 async def create_combo(
     combo_data: ComboCreate,
+    db: AsyncIOMotorDatabase = Depends(get_database),
     current_admin_user: TokenData = Depends(get_current_admin_user)
 ):
     """
@@ -181,40 +112,13 @@ async def create_combo(
     Requiere permisos de administrador.
     """
     try:
-        # Validar que los productos existen
-        products_collection = get_collection("products")
-        for item in combo_data.items:
-            if not ObjectId.is_valid(item.product_id):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"ID de producto inválido: {item.product_id}"
-                )
-            
-            product = await products_collection.find_one({"_id": ObjectId(item.product_id)})
-            if not product:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Producto con ID {item.product_id} no encontrado."
-                )
-        
-        # Crear el combo
-        combos_collection = get_collection("combos")
-        new_combo = Combo(**combo_data.model_dump())
-        combo_dict = new_combo.model_dump(exclude={"_id"}, by_alias=False)
-        
-        result = await combos_collection.insert_one(combo_dict)
-        
-        if not result.inserted_id:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="No se pudo crear el combo."
-            )
-        
-        created_combo = await combos_collection.find_one({"_id": result.inserted_id})
-        logger.info(f"Admin {current_admin_user.username} creó el combo '{combo_data.name}' (ID: {result.inserted_id}).")
-        
-        return Combo(**created_combo)
-    
+        return await _svc_create_combo(db, combo_data, current_admin_user.user_id)
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except InternalError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except HTTPException:
         raise
     except Exception as e:
@@ -229,6 +133,7 @@ async def create_combo(
 async def update_combo(
     combo_id: str,
     combo_data: ComboUpdate,
+    db: AsyncIOMotorDatabase = Depends(get_database),
     current_admin_user: TokenData = Depends(get_current_admin_user)
 ):
     """
@@ -242,46 +147,11 @@ async def update_combo(
         )
     
     try:
-        combos_collection = get_collection("combos")
-        combo = await combos_collection.find_one({"_id": ObjectId(combo_id)})
-        
-        if not combo:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Combo no encontrado."
-            )
-        
-        # Validar productos si se están actualizando
-        if combo_data.items:
-            products_collection = get_collection("products")
-            for item in combo_data.items:
-                if not ObjectId.is_valid(item.product_id):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"ID de producto inválido: {item.product_id}"
-                    )
-                
-                product = await products_collection.find_one({"_id": ObjectId(item.product_id)})
-                if not product:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"Producto con ID {item.product_id} no encontrado."
-                    )
-        
-        # Actualizar solo los campos proporcionados
-        update_data = combo_data.model_dump(exclude_unset=True)
-        update_data["updated_at"] = datetime.now(tz=timezone.utc)
-        
-        await combos_collection.update_one(
-            {"_id": ObjectId(combo_id)},
-            {"$set": update_data}
-        )
-        
-        updated_combo = await combos_collection.find_one({"_id": ObjectId(combo_id)})
-        logger.info(f"Admin {current_admin_user.username} actualizó el combo {combo_id}.")
-        
-        return Combo(**updated_combo)
-    
+        return await _svc_update_combo(db, combo_id, combo_data, current_admin_user.user_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except HTTPException:
         raise
     except Exception as e:
@@ -295,6 +165,7 @@ async def update_combo(
 @router.delete("/admin/{combo_id}", tags=["Admin"])
 async def delete_combo(
     combo_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_database),
     permanent: bool = Query(False, description="Eliminar permanentemente (true) o solo desactivar (false)"),
     current_admin_user: TokenData = Depends(get_current_admin_user)
 ):
@@ -310,29 +181,9 @@ async def delete_combo(
         )
     
     try:
-        combos_collection = get_collection("combos")
-        combo = await combos_collection.find_one({"_id": ObjectId(combo_id)})
-        
-        if not combo:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Combo no encontrado."
-            )
-        
-        if permanent:
-            # Eliminación permanente
-            await combos_collection.delete_one({"_id": ObjectId(combo_id)})
-            logger.info(f"Admin {current_admin_user.username} eliminó permanentemente el combo {combo_id}.")
-            return {"message": "Combo eliminado permanentemente."}
-        else:
-            # Soft delete - solo desactivar
-            await combos_collection.update_one(
-                {"_id": ObjectId(combo_id)},
-                {"$set": {"active": False, "updated_at": datetime.now(tz=timezone.utc)}}
-            )
-            logger.info(f"Admin {current_admin_user.username} desactivó el combo {combo_id}.")
-            return {"message": "Combo desactivado correctamente."}
-    
+        return await _svc_delete_combo(db, combo_id, permanent, current_admin_user.user_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except HTTPException:
         raise
     except Exception as e:

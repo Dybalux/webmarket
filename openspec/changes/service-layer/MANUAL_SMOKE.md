@@ -317,4 +317,143 @@ curl -X PUT http://localhost:8000/admin/pricing-settings \
 - **Created**: During sdd-verify phase (2026-06-12)
 - **Automated**: No — this is a manual-only verification guide
 - **Updated**: PR #5a (2026-06-12) — added sections 7 (Products CRUD, 6 endpoints) and 8 (Pricing settings, 3 endpoints)
-- **Coverage**: 15 endpoints documented (6 original + 9 from PR #5a)
+- **Updated**: PR #5b-2b (2026-06-12) — added section 9 (Combos CRUD, 6 endpoints)
+- **Coverage**: 21 endpoints documented (6 original + 9 PR #5a + 6 PR #5b-2b)
+
+---
+
+## 9. Combos CRUD (6 endpoints)
+
+### GET /combos/ (public — list active)
+
+**Request**:
+```bash
+curl http://localhost:8000/combos
+```
+
+**Expected Response**:
+- Status: `200 OK`
+- Body: Array of `ComboDetailed` objects (only active combos)
+- Each combo includes enriched product info, pricing with dynamic pricing applied, and savings calculation
+- Empty DB → `200 OK` with `[]`
+- Unexpected error → `500 Internal Server Error` with `"Error al obtener los combos."`
+
+**Notes**: Public endpoint. Uses CombosService.list_active_combos. Fully enriched with `_enrich_combos` (apply_dynamic_pricing=True).
+
+---
+
+### GET /combos/{id} (public — single)
+
+**Request**:
+```bash
+curl http://localhost:8000/combos/<combo_id>
+```
+
+**Expected Response**:
+- Status: `200 OK`
+- Body: `Combo` JSON with dynamic pricing applied
+- Invalid ID → `400 Bad Request` with `"ID de combo inválido."`
+- Not found / inactive → `404 Not Found` with `"Combo no encontrado."`
+- Unexpected error → `500 Internal Server Error` with `"Error al obtener el combo."`
+
+**Notes**: Public endpoint. Uses CombosService.get_combo_by_id. Only returns active combos. ObjectId validation stays in router.
+
+---
+
+### GET /combos/admin/all (admin — list all)
+
+**Request**:
+```bash
+curl http://localhost:8000/combos/admin/all \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+**Expected Response**:
+- Status: `200 OK`
+- Body: Array of `ComboDetailed` objects (all combos when `include_inactive=true`)
+- Query param `include_inactive=false` → only active combos
+- Empty list → `200 OK` with `[]`
+- Unexpected error → `500 Internal Server Error` with `"Error al obtener la lista de combos."`
+
+**Notes**: Admin endpoint. Uses CombosService.list_all_combos. Base prices only (no dynamic pricing). Enrichment shared with public listing via `_enrich_combos(apply_dynamic_pricing=False)`.
+
+---
+
+### POST /combos/admin (admin — create)
+
+**Request**:
+```bash
+curl -X POST http://localhost:8000/combos/admin \
+  -H "Authorization: Bearer <admin_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Pack Verano",
+    "description": "Cerveza + Vino combo",
+    "price": 4500.0,
+    "image_url": "https://example.com/pack-verano.jpg",
+    "items": [
+      {"product_id": "<stella_id>", "quantity": 2},
+      {"product_id": "<malbec_id>", "quantity": 2}
+    ]
+  }'
+```
+
+**Expected Response**:
+- Status: `201 Created`
+- Body: `Combo` JSON with `_id`, `name`, `price`, `items`, `active=true`, `created_at`, `updated_at`
+- Invalid product ID → `400 Bad Request` with `"ID de producto inválido: <id>"`
+- Product not found → `404 Not Found` with `"Producto con ID <id> no encontrado."`
+- Insert failure → `500 Internal Server Error` with `"No se pudo crear el combo."`
+- Unexpected error → `500 Internal Server Error` with `"Error al crear el combo."`
+
+**Notes**: Admin endpoint. Uses CombosService.create_combo. Validates all referenced product IDs exist before insert.
+
+---
+
+### PUT /combos/admin/{id} (admin — update)
+
+**Request**:
+```bash
+curl -X PUT http://localhost:8000/combos/admin/<combo_id> \
+  -H "Authorization: Bearer <admin_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "price": 4200.0,
+    "active": false
+  }'
+```
+
+**Expected Response**:
+- Status: `200 OK`
+- Body: `Combo` JSON with updated fields + `updated_at` timestamp
+- Invalid combo ID → `400 Bad Request` with `"ID de combo inválido."`
+- Combo not found → `404 Not Found` with `"Combo no encontrado."`
+- Invalid product ID in items → `400 Bad Request` with `"ID de producto inválido: <id>"`
+- Referenced product not found → `404 Not Found` with `"Producto con ID <id> no encontrado."`
+- Unexpected error → `500 Internal Server Error` with `"Error al actualizar el combo."`
+
+**Notes**: Admin endpoint. Uses CombosService.update_combo. Partial update via `ComboUpdate` (exclude_unset). Product references are re-validated if `items` field is present.
+
+---
+
+### DELETE /combos/admin/{id} (admin — delete/soft-delete)
+
+**Request**:
+```bash
+# Soft delete (deactivate)
+curl -X DELETE "http://localhost:8000/combos/admin/<combo_id>" \
+  -H "Authorization: Bearer <admin_token>"
+
+# Hard delete (permanent)
+curl -X DELETE "http://localhost:8000/combos/admin/<combo_id>?permanent=true" \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+**Expected Response**:
+- Soft delete → `200 OK` with `{"message": "Combo desactivado correctamente."}`
+- Hard delete → `200 OK` with `{"message": "Combo eliminado permanentemente."}`
+- Invalid combo ID → `400 Bad Request` with `"ID de combo inválido."`
+- Combo not found → `404 Not Found` with `"Combo no encontrado."`
+- Unexpected error → `500 Internal Server Error` with `"Error al eliminar el combo."`
+
+**Notes**: Admin endpoint. Uses CombosService.delete_combo. Default is soft delete (`active=False`). `permanent=true` physically removes the document.
