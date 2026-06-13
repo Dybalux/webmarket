@@ -348,6 +348,126 @@ async def test_validation_exception_content_type():
 
 
 # ============================================================================
+# F1 — Content-Type override guard in exc.headers (Judgment Day Round 2)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_http_exception_auth_branch_guards_content_type_override():
+    """Auth 401 branch: exc.headers['content-type'] must NOT overwrite RFC 9457 CT."""
+    from fastapi import HTTPException
+    from utils.errors import http_exception_handler
+
+    exc = HTTPException(
+        status_code=401,
+        detail="Not authenticated",
+        headers={"content-type": "text/plain", "WWW-Authenticate": "Bearer"},
+    )
+    request = _mock_request("/api/v1/orders/me")
+
+    response = await http_exception_handler(request, exc)
+
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.headers.get("WWW-Authenticate") == "Bearer"
+
+
+@pytest.mark.asyncio
+async def test_http_exception_passthrough_branch_guards_content_type_override():
+    """Non-auth 400 passthrough: exc.headers['content-type'] must NOT overwrite application/json."""
+    from fastapi import HTTPException
+    from utils.errors import http_exception_handler
+
+    exc = HTTPException(
+        status_code=400,
+        detail="Bad request",
+        headers={"content-type": "text/plain"},
+    )
+    request = _mock_request("/api/v1/products")
+
+    response = await http_exception_handler(request, exc)
+
+    assert response.headers["content-type"] == "application/json"
+
+
+@pytest.mark.asyncio
+async def test_http_exception_admin_exclusion_branch_guards_content_type_override():
+    """Admin exclusion: exc.headers['content-type'] must NOT overwrite application/json."""
+    from fastapi import HTTPException
+    from utils.errors import http_exception_handler
+
+    exc = HTTPException(
+        status_code=401,
+        detail="Unauthorized admin",
+        headers={"content-type": "text/plain", "WWW-Authenticate": "Bearer"},
+    )
+    request = _mock_request("/admin/stats")
+
+    response = await http_exception_handler(request, exc)
+
+    assert response.headers["content-type"] == "application/json"
+    assert response.headers.get("WWW-Authenticate") == "Bearer"
+
+
+# ============================================================================
+# F2 — Tightened admin/age-verification path matching (Judgment Day Round 2)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_http_exception_admin_panel_path_not_excluded():
+    """/admin-panel/foo must NOT take admin exclusion — returns RFC 9457 for 401."""
+    from fastapi import HTTPException
+    from utils.errors import http_exception_handler
+
+    exc = HTTPException(status_code=401, detail="Not authenticated")
+    request = _mock_request("/admin-panel/foo")
+
+    response = await http_exception_handler(request, exc)
+    body = json.loads(response.body)
+
+    assert response.headers["content-type"] == "application/problem+json"
+    assert body["type"] == "about:blank"
+    assert body["title"] == "Unauthorized"
+
+
+@pytest.mark.asyncio
+async def test_http_exception_age_verification_panel_path_not_excluded():
+    """/age-verification-panel/foo must NOT take admin exclusion — returns RFC 9457 for 403."""
+    from fastapi import HTTPException
+    from utils.errors import http_exception_handler
+
+    exc = HTTPException(status_code=403, detail="Forbidden")
+    request = _mock_request("/age-verification-panel/foo")
+
+    response = await http_exception_handler(request, exc)
+    body = json.loads(response.body)
+
+    assert response.headers["content-type"] == "application/problem+json"
+    assert body["type"] == "about:blank"
+    assert body["title"] == "Forbidden"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    ["/admin", "/admin/foo", "/admin/foo/bar", "/age-verification", "/age-verification/foo"],
+)
+async def test_http_exception_exact_admin_paths_still_excluded(path):
+    """Exact matches and sub-paths of /admin and /age-verification MUST still be excluded."""
+    from fastapi import HTTPException
+    from utils.errors import http_exception_handler
+
+    exc = HTTPException(status_code=401, detail="Unauthorized")
+    request = _mock_request(path)
+
+    response = await http_exception_handler(request, exc)
+    body = json.loads(response.body)
+
+    assert response.headers["content-type"] == "application/json"
+    assert body == {"detail": "Unauthorized"}
+
+
+# ============================================================================
 # service_error_handler detail-fallback test — Judgment Day F4
 # ============================================================================
 

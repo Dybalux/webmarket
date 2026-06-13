@@ -97,12 +97,22 @@ class MaintenanceModeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # 1. Lista blanca de rutas que SIEMPRE funcionan (admin, auth, docs, etc.)
         allowed_paths = [
-            "/admin", "/auth", "/docs", "/redoc", "/openapi.json", 
+            "/auth", "/docs", "/redoc", "/openapi.json",
             "/health", "/system-status", "/static", "/favicon.ico"
         ]
-        
+
+        # Tightened match for /admin and /age-verification: exact path or sub-path only.
+        # Avoids false positives like /admin-panel or /age-verification-panel.
+        is_admin = request.url.path == "/admin" or request.url.path.startswith("/admin/")
+        is_age_verification = (
+            request.url.path == "/age-verification"
+            or request.url.path.startswith("/age-verification/")
+        )
+
         # Permitir si la ruta comienza con algo de la lista blanca
-        if any(request.url.path.startswith(path) for path in allowed_paths):
+        if is_admin or is_age_verification or any(
+            request.url.path.startswith(path) for path in allowed_paths
+        ):
             return await call_next(request)
 
         # 2. Permitir solicitudes OPTIONS (CORS preflight)

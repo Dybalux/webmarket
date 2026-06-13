@@ -110,20 +110,34 @@ async def http_exception_handler(
     FastAPI ``{"detail": ...}`` JSON envelope.
     """
     # Exclusion: admin and age-verification return default FastAPI JSON envelope
-    if request.url.path.startswith(("/admin", "/age-verification")):
+    is_admin_or_age = (
+        request.url.path == "/admin"
+        or request.url.path.startswith("/admin/")
+        or request.url.path == "/age-verification"
+        or request.url.path.startswith("/age-verification/")
+    )
+    if is_admin_or_age:
+        # Defense-in-depth: never let exc.headers override the response Content-Type.
+        passthrough_headers = {
+            k: v for k, v in (exc.headers or {}).items() if k.lower() != "content-type"
+        }
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail or ""},
-            headers=exc.headers,
+            headers=passthrough_headers,
             media_type="application/json",
         )
 
     # Only normalize 401/403 — other status codes use the default FastAPI envelope
     if exc.status_code not in (401, 403):
+        # Defense-in-depth: never let exc.headers override the response Content-Type.
+        passthrough_headers = {
+            k: v for k, v in (exc.headers or {}).items() if k.lower() != "content-type"
+        }
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail or ""},
-            headers=exc.headers,
+            headers=passthrough_headers,
             media_type="application/json",
         )
 
@@ -139,10 +153,12 @@ async def http_exception_handler(
         headers={"Content-Type": "application/problem+json"},
     )
 
-    # Preserve headers from the original exception (e.g. WWW-Authenticate)
+    # Preserve headers from the original exception (e.g. WWW-Authenticate),
+    # but never let exc.headers override the RFC 9457 Content-Type.
     if exc.headers:
         for key, value in exc.headers.items():
-            response.headers[key] = value
+            if key.lower() != "content-type":
+                response.headers[key] = value
 
     return response
 
