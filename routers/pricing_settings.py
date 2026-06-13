@@ -8,7 +8,6 @@ from models import DynamicPricingSettings, DynamicPricingUpdate, TokenData
 from database import get_database
 from security import get_current_admin_user
 from services import pricing as pricing_service
-from services.exceptions import InternalError
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +28,6 @@ async def get_pricing_settings_public(
     """
     try:
         return await pricing_service.get_pricing_settings(db)
-    except InternalError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
         logger.error(f"Error al obtener configuración de precios: {e}", exc_info=True)
         raise HTTPException(
@@ -54,8 +51,6 @@ async def get_pricing_settings_admin(
     """
     try:
         return await pricing_service.get_pricing_settings(db)
-    except InternalError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
         logger.error(f"Error al obtener configuración de precios: {e}", exc_info=True)
         raise HTTPException(
@@ -90,8 +85,6 @@ async def update_pricing_settings(
         return await pricing_service.update_pricing_settings(
             db, settings, current_admin_user.user_id
         )
-    except InternalError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
         logger.error(f"Error al actualizar configuración de precios: {e}", exc_info=True)
         raise HTTPException(

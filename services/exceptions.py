@@ -105,8 +105,14 @@ class InvalidObjectIdError(ValidationError):
 class InsufficientStockError(ServiceError):
     """Product stock is too low to fulfill the requested quantity."""
 
-    def __init__(self, detail: str = "Stock insuficiente.") -> None:
-        super().__init__(detail, status_code=409, code="insufficient_stock")
+    def __init__(
+        self,
+        detail: str = "Stock insuficiente.",
+        *,
+        status_code: int = 409,
+        code: str = "insufficient_stock",
+    ) -> None:
+        super().__init__(detail, status_code=status_code, code=code)
 
 
 class ConcurrentStockUpdateError(ServiceError):

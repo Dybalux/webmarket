@@ -17,18 +17,6 @@ from services.orders import (
     update_order_status as _svc_update_order_status,
 )
 from services.shipping import get_shipping_prices as _svc_get_shipping_prices
-from services.exceptions import (
-    ComboInactiveError,
-    ConcurrentStockUpdateError,
-    EmptyCartError,
-    ForbiddenError,
-    InsufficientStockError,
-    InternalError,
-    InvalidStateTransitionError,
-    NotFoundError,
-    ShippingZoneDisabledError,
-    ShippingZoneInvalidError,
-)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -61,24 +49,7 @@ async def create_order_endpoint(
     current_verified_user: TokenData = Depends(get_current_verified_user),
 ):
     """Create an order from the user's cart. Requires age verification."""
-    try:
-        return await _svc_create_order(db, user_id, order_data, payment_method)
-    except EmptyCartError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except InsufficientStockError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except ComboInactiveError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except ShippingZoneInvalidError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except ShippingZoneDisabledError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except ConcurrentStockUpdateError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except InternalError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return await _svc_create_order(db, user_id, order_data, payment_method)
 
 
 # ---------------------------------------------------------------------------
@@ -115,16 +86,9 @@ async def select_payment_method(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ID de pedido inválido.",
         )
-    try:
-        return await _svc_select_payment_method(
-            db, order_id, user_id, payment_method
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except ForbiddenError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except InvalidStateTransitionError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return await _svc_select_payment_method(
+        db, order_id, user_id, payment_method
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -144,12 +108,7 @@ async def get_order_details(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ID de pedido inválido.",
         )
-    try:
-        return await _svc_get_order_by_id(db, order_id, user_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except ForbiddenError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return await _svc_get_order_by_id(db, order_id, user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -170,9 +129,6 @@ async def update_order_status(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ID de pedido inválido.",
         )
-    try:
-        return await _svc_update_order_status(
-            db, order_id, new_status, current_admin_user.user_id
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return await _svc_update_order_status(
+        db, order_id, new_status, current_admin_user.user_id
+    )

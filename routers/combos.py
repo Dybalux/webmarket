@@ -15,8 +15,6 @@ from services.combos import (
     update_combo as _svc_update_combo,
     delete_combo as _svc_delete_combo,
 )
-from services.exceptions import InternalError, NotFoundError, ValidationError
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -113,12 +111,6 @@ async def create_combo(
     """
     try:
         return await _svc_create_combo(db, combo_data, current_admin_user.user_id)
-    except ValidationError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except InternalError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except HTTPException:
         raise
     except Exception as e:
@@ -148,10 +140,6 @@ async def update_combo(
     
     try:
         return await _svc_update_combo(db, combo_id, combo_data, current_admin_user.user_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except ValidationError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except HTTPException:
         raise
     except Exception as e:
@@ -182,8 +170,6 @@ async def delete_combo(
     
     try:
         return await _svc_delete_combo(db, combo_id, permanent, current_admin_user.user_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except HTTPException:
         raise
     except Exception as e:

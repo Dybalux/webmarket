@@ -8,7 +8,6 @@ from models import Product, ProductCategory, TokenData, AdminProduct, ProductUpd
 from database import get_database
 from security import get_current_admin_user
 from services import products as products_service
-from services.exceptions import DuplicateProductNameError, InternalError, NotFoundError
 
 router = APIRouter()
 
@@ -28,12 +27,7 @@ async def create_product(
     Crea un nuevo producto (bebida) en el catálogo.
     Requiere permisos de administrador.
     """
-    try:
-        return await products_service.create_product(db, product, current_user.user_id)
-    except DuplicateProductNameError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except InternalError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return await products_service.create_product(db, product, current_user.user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -90,10 +84,7 @@ async def read_product(
     if not ObjectId.is_valid(product_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto inválido.")
 
-    try:
-        return await products_service.get_product(db, product_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return await products_service.get_product(db, product_id)
 
 
 # ---------------------------------------------------------------------------
@@ -116,12 +107,9 @@ async def update_product(
     if not ObjectId.is_valid(product_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto inválido.")
 
-    try:
-        return await products_service.update_product(
-            db, product_id, product_update, current_admin_user.user_id
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return await products_service.update_product(
+        db, product_id, product_update, current_admin_user.user_id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +130,7 @@ async def delete_product(
     if not ObjectId.is_valid(product_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto inválido.")
 
-    try:
-        await products_service.delete_product(db, product_id, current_admin_user.user_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    await products_service.delete_product(db, product_id, current_admin_user.user_id)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -168,9 +153,6 @@ async def toggle_product_active(
     if not ObjectId.is_valid(product_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto inválido.")
 
-    try:
-        return await products_service.toggle_product_active(
-            db, product_id, current_admin_user.user_id
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return await products_service.toggle_product_active(
+        db, product_id, current_admin_user.user_id
+    )
