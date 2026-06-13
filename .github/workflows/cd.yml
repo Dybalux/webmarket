@@ -1,0 +1,104 @@
+name: CD (local)
+
+on:
+  push:
+    branches: [dev, main]
+
+jobs:
+  build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: webmarket
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-,format=short
+
+      - name: Build and export image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          tags: ${{ steps.meta.outputs.tags }},webmarket:smoketest
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=docker,dest=/tmp/webmarket.tar
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Load image into local daemon
+        run: docker load --input /tmp/webmarket.tar
+
+      - name: Smoke test
+        env:
+          IMAGE_TAG: webmarket:smoketest
+        run: |
+          echo "Starting container..."
+          docker run -d --name smoke \
+            -p 8000:8000 \
+            -e DATABASE_URL=mongodb://localhost:27017/webmarket_smoke \
+            -e DATABASE_NAME=webmarket_smoke \
+            -e REDIS_URL=redis://localhost:6379 \
+            -e SECRET_KEY=smoke-test-not-real-secret \
+            -e ENV=test \
+            -e PORT=8000 \
+            ${IMAGE_TAG}
+
+          echo "Waiting for /health to respond..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health > /tmp/health_response.json; then
+              echo "Smoke test passed at attempt $i"
+              echo "Health response:"
+              cat /tmp/health_response.json
+              echo ""
+              docker stop smoke
+              docker rm smoke
+              exit 0
+            fi
+            echo "Attempt $i: /health not ready, sleeping 2s..."
+            sleep 2
+          done
+
+          echo "Smoke test FAILED — /health did not respond within 60s"
+          echo "Container logs:"
+          docker logs smoke
+          docker stop smoke
+          docker rm smoke
+          exit 1
+
+      - name: Compress image
+        run: gzip -f /tmp/webmarket.tar
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webmarket-image-${{ github.ref_name }}-${{ github.sha }}
+          path: /tmp/webmarket.tar.gz
+          retention-days: 14
+          if-no-files-found: error
