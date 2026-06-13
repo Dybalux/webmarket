@@ -1,8 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from config import settings
 from database import connect_db, close_db, get_database
 from routers import auth, products, age_verification, cart, orders, payments, inventory, admin, payment_settings, combos, pricing_settings
+from services.exceptions import ServiceError
+from utils.errors import (
+    service_error_handler,
+    http_exception_handler,
+    validation_exception_handler,
+)
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import uvicorn
@@ -131,6 +138,14 @@ class MaintenanceModeMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(MaintenanceModeMiddleware)
+
+# --- RFC 9457 global exception handlers ---
+# Registration order matters: ServiceError first, then HTTPException,
+# then RequestValidationError. Starlette matches the first compatible
+# handler in registration order.
+app.add_exception_handler(ServiceError, service_error_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 # Rutas principales
 

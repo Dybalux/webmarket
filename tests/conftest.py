@@ -304,6 +304,21 @@ def _build_test_app(db: AsyncIOMotorDatabase) -> FastAPI:
     app.dependency_overrides[database.get_database] = _override_get_database
     app.dependency_overrides[database.get_collection] = _override_get_collection
 
+    # Register RFC 9457 exception handlers so that ServiceError subclasses
+    # propagate correctly in tests (routers no longer catch them).
+    from fastapi import HTTPException
+    from fastapi.exceptions import RequestValidationError
+    from services.exceptions import ServiceError
+    from utils.errors import (
+        service_error_handler,
+        http_exception_handler,
+        validation_exception_handler,
+    )
+
+    app.add_exception_handler(ServiceError, service_error_handler)
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
     return app
 
 
