@@ -15,7 +15,13 @@ async def connect_db():
     Establece la conexión a MongoDB y valida con un ping.
     """
     try:
-        db.client = AsyncIOMotorClient(settings.DATABASE_URL)
+        db.client = AsyncIOMotorClient(
+            settings.DATABASE_URL,
+            # Fail fast en vez del default de 20s — si Mongo no está, queremos
+            # enterarnos rápido y dejar que el caller (lifespan o scripts)
+            # decida qué hacer. En el lifespan se loguea warning y se sigue.
+            serverSelectionTimeoutMS=3000,
+        )
         db.db = db.client[settings.DATABASE_NAME]
         await db.client.admin.command("ping")
         logger.info(f"✅ Conectado a MongoDB: {settings.DATABASE_URL}/{settings.DATABASE_NAME}")

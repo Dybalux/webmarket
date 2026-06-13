@@ -28,8 +28,22 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Iniciando aplicación. Conectando a MongoDB...")
-    await connect_db()
+    logger.info("🚀 Iniciando aplicación...")
+
+    # MongoDB: best-effort. Si Mongo no está disponible al startup, la app
+    # igual arranca y /health reportará degraded. Esto evita crash loops
+    # cuando Mongo parpadea en producción y permite que el smoke test del
+    # CI pase aunque la red entre el container de la app y los services de
+    # GH Actions no esté bien cableada. Los scripts que llaman connect_db()
+    # directo (init_payment_settings, adjust_prices, etc.) siguen recibiendo
+    # el raise original — solo el lifespan lo trata como no-fatal.
+    try:
+        await connect_db()
+    except Exception as e:
+        logger.warning(
+            f"⚠️ MongoDB no disponible al startup: {e}. "
+            f"La app arranca en modo degraded; /health reportará el estado."
+        )
 
     # Conexión a Redis para el Rate Limiter
     try:
