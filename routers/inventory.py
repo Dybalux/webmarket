@@ -10,7 +10,6 @@ from services.inventory import (
     add_stock as _add_stock,
     get_alerts as _get_alerts,
 )
-from services.exceptions import NotFoundError
 import logging
 
 logger = logging.getLogger(__name__)
@@ -37,15 +36,9 @@ async def update_product_stock(
             detail="ID de producto inválido.",
         )
 
-    try:
-        return await _update_stock(
-            db, product_id, new_stock, current_admin_user.user_id
-        )
-    except NotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Producto no encontrado.",
-        )
+    return await _update_stock(
+        db, product_id, new_stock, current_admin_user.user_id
+    )
 
 
 @router.put("/{product_id}/stock/add", response_model=Product)
@@ -62,15 +55,9 @@ async def add_to_product_stock(
             detail="ID de producto inválido.",
         )
 
-    try:
-        return await _add_stock(
-            db, product_id, quantity_to_add, current_admin_user.user_id
-        )
-    except NotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Producto no encontrado.",
-        )
+    return await _add_stock(
+        db, product_id, quantity_to_add, current_admin_user.user_id
+    )
 
 
 @router.get("/alerts", response_model=List[InventoryAlert])

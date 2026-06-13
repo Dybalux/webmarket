@@ -6,11 +6,6 @@ import logging
 from database import get_database
 from security import get_current_active_user_id
 from services.payments import create_mp_preference, process_webhook
-from services.exceptions import (
-    ForbiddenError,
-    InvalidStateTransitionError,
-    NotFoundError,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +27,6 @@ async def create_payment_preference(
 
     try:
         return await create_mp_preference(db, user_id, order_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except ForbiddenError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except InvalidStateTransitionError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)

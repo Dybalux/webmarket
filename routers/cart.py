@@ -17,9 +17,7 @@ from services.cart import (
     validate_cart_stock as _svc_validate_cart_stock,
 )
 from services.exceptions import (
-    CartItemNotFoundError,
     InsufficientStockError,
-    NotFoundError,
 )
 
 import logging
@@ -66,12 +64,8 @@ async def add_to_cart(
         return await _svc_add_to_cart(
             db, user_id, cart_item_data.product_id, cart_item_data.quantity
         )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except InsufficientStockError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=e.detail
-        )
+        raise InsufficientStockError(e.detail, status_code=400)
 
 
 # ---------------------------------------------------------------------------
@@ -96,14 +90,8 @@ async def update_cart_item_quantity(
         return await _svc_update_cart_item(
             db, user_id, cart_item_data.product_id, cart_item_data.quantity
         )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except InsufficientStockError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=e.detail
-        )
-    except CartItemNotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+        raise InsufficientStockError(e.detail, status_code=400)
 
 
 # ---------------------------------------------------------------------------
@@ -124,10 +112,7 @@ async def remove_from_cart(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ID de producto inválido.",
         )
-    try:
-        return await _svc_remove_from_cart(db, user_id, product_id)
-    except CartItemNotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return await _svc_remove_from_cart(db, user_id, product_id)
 
 
 # ---------------------------------------------------------------------------
