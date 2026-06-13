@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+from functools import lru_cache
 from typing import Optional
 
 import mercadopago
@@ -27,7 +28,24 @@ from services.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
-_mp = mercadopago.SDK(settings.MERCADOPAGO_ACCESS_TOKEN)
+
+
+@lru_cache(maxsize=1)
+def _get_sdk() -> mercadopago.SDK:
+    """Return the cached MercadoPago SDK client.
+
+    Initialised lazily so the module can be imported (and /health can
+    respond) in environments where MERCADOPAGO_ACCESS_TOKEN is not set
+    (CI smoke tests, local dev without secrets). A clear error is raised
+    only when a payment call actually runs without a configured token.
+    """
+    token = settings.MERCADOPAGO_ACCESS_TOKEN
+    if not token:
+        raise RuntimeError(
+            "MERCADOPAGO_ACCESS_TOKEN is not configured. "
+            "Set it in the environment or .env to use payment endpoints."
+        )
+    return mercadopago.SDK(token)
 
 
 async def create_mp_preference(
@@ -65,7 +83,7 @@ async def create_mp_preference(
     }
 
     try:
-        resp = _mp.preference().create(pref_data)
+        resp = _get_sdk().preference().create(pref_data)
         logger.info("MP response: %s", resp)
         if "response" not in resp:
             msg = resp.get("message", "Error desconocido")
@@ -113,7 +131,7 @@ async def process_webhook(
             logger.info("Payment %s already processed.", payment_id)
             return
 
-        info = _mp.payment().get(payment_id)["response"]
+        info = _get_sdk().payment().get(payment_id)["response"]
         await pays.insert_one(info)
         logger.info("Payment %s saved.", payment_id)
 
