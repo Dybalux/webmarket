@@ -34,14 +34,7 @@ async def get_active_combos(
     Optimizado con bulk queries para mejor performance.
     Endpoint público - no requiere autenticación.
     """
-    try:
-        return await list_active_combos(db)
-    except Exception as e:
-        logger.error(f"Error al obtener combos: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener los combos."
-        )
+    return await list_active_combos(db)
 
 
 
@@ -59,22 +52,8 @@ async def get_combo_by_id(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ID de combo inválido."
         )
-    
-    try:
-        return await _svc_get_combo_by_id(db, combo_id)
-    except NotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Combo no encontrado."
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error al obtener combo {combo_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener el combo."
-        )
+
+    return await _svc_get_combo_by_id(db, combo_id)
 
 
 # --- Endpoints de Administrador ---
@@ -89,14 +68,7 @@ async def get_all_combos_admin(
     [Admin] Obtiene todos los combos (activos e inactivos) con información detallada.
     Incluye nombres de productos, cálculo de costos y ahorros.
     """
-    try:
-        return await list_all_combos(db, include_inactive)
-    except Exception as e:
-        logger.error(f"Error al obtener combos admin: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener la lista de combos."
-        )
+    return await list_all_combos(db, include_inactive)
 
 
 @router.post("/admin", response_model=Combo, status_code=status.HTTP_201_CREATED, tags=["Admin"])
@@ -109,16 +81,7 @@ async def create_combo(
     [Admin] Crea un nuevo combo de productos.
     Requiere permisos de administrador.
     """
-    try:
-        return await _svc_create_combo(db, combo_data, current_admin_user.user_id)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error al crear combo: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al crear el combo."
-        )
+    return await _svc_create_combo(db, combo_data, current_admin_user.user_id)
 
 
 @router.put("/admin/{combo_id}", response_model=Combo, tags=["Admin"])
@@ -137,17 +100,8 @@ async def update_combo(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ID de combo inválido."
         )
-    
-    try:
-        return await _svc_update_combo(db, combo_id, combo_data, current_admin_user.user_id)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error al actualizar combo: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al actualizar el combo."
-        )
+
+    return await _svc_update_combo(db, combo_id, combo_data, current_admin_user.user_id)
 
 
 @router.delete("/admin/{combo_id}", tags=["Admin"])
@@ -167,14 +121,5 @@ async def delete_combo(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ID de combo inválido."
         )
-    
-    try:
-        return await _svc_delete_combo(db, combo_id, permanent, current_admin_user.user_id)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error al eliminar combo: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al eliminar el combo."
-        )
+
+    return await _svc_delete_combo(db, combo_id, permanent, current_admin_user.user_id)

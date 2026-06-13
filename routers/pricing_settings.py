@@ -26,14 +26,7 @@ async def get_pricing_settings_public(
     """
     Obtiene la configuración actual de precios dinámicos (público).
     """
-    try:
-        return await pricing_service.get_pricing_settings(db)
-    except Exception as e:
-        logger.error(f"Error al obtener configuración de precios: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener configuración de precios.",
-        )
+    return await pricing_service.get_pricing_settings(db)
 
 
 # ---------------------------------------------------------------------------
@@ -49,14 +42,7 @@ async def get_pricing_settings_admin(
     """
     [Admin] Obtiene la configuración actual de precios.
     """
-    try:
-        return await pricing_service.get_pricing_settings(db)
-    except Exception as e:
-        logger.error(f"Error al obtener configuración de precios: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener configuración de precios.",
-        )
+    return await pricing_service.get_pricing_settings(db)
 
 
 # ---------------------------------------------------------------------------
@@ -73,21 +59,14 @@ async def update_pricing_settings(
     """
     [Admin] Actualiza la configuración de precios dinámicos.
     """
-    try:
-        settings = DynamicPricingSettings(
-            enabled=settings_update.enabled,
-            multiplier=settings_update.multiplier,
-            start_day=settings_update.start_day,
-            end_day=settings_update.end_day,
-            start_hour=settings_update.start_hour,
-            end_hour=settings_update.end_hour,
-        )
-        return await pricing_service.update_pricing_settings(
-            db, settings, current_admin_user.user_id
-        )
-    except Exception as e:
-        logger.error(f"Error al actualizar configuración de precios: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al actualizar configuración de precios.",
-        )
+    settings = DynamicPricingSettings(
+        enabled=settings_update.enabled,
+        multiplier=settings_update.multiplier,
+        start_day=settings_update.start_day,
+        end_day=settings_update.end_day,
+        start_hour=settings_update.start_hour,
+        end_hour=settings_update.end_hour,
+    )
+    return await pricing_service.update_pricing_settings(
+        db, settings, current_admin_user.user_id
+    )

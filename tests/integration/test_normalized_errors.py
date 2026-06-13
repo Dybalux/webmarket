@@ -89,6 +89,14 @@ def app_with_handlers() -> FastAPI:
     async def trigger_auth_403(request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    @router.get("/trigger/http-400")
+    async def trigger_http_400(request: Request):
+        raise HTTPException(status_code=400, detail="test detail")
+
+    @router.get("/admin/http-404")
+    async def trigger_admin_http_404(request: Request):
+        raise HTTPException(status_code=404, detail="admin not found")
+
     app.include_router(router)
     return app
 
@@ -200,3 +208,25 @@ async def test_auth_403_returns_rfc9457(client):
     assert body["title"] == "Forbidden"
     assert body["status"] == 403
     assert body["instance"] == "/trigger/auth-403"
+
+
+@pytest.mark.asyncio
+async def test_http_exception_non_auth_returns_default_json(client):
+    """Non-auth HTTPException(400) → default FastAPI JSON envelope (NOT 500, NOT problem+json)."""
+    response = await client.get("/trigger/http-400")
+    body = response.json()
+
+    assert response.status_code == 400
+    assert response.headers["Content-Type"] == "application/json"
+    assert body == {"detail": "test detail"}
+
+
+@pytest.mark.asyncio
+async def test_http_exception_admin_path_returns_default_json(client):
+    """HTTPException(404) under /admin → default FastAPI JSON envelope, status preserved."""
+    response = await client.get("/admin/http-404")
+    body = response.json()
+
+    assert response.status_code == 404
+    assert response.headers["Content-Type"] == "application/json"
+    assert body == {"detail": "admin not found"}

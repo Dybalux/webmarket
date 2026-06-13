@@ -94,7 +94,7 @@ async def service_error_handler(
             "type": type_uri(exc.code),
             "title": HTTP_STATUS_PHRASES.get(exc.status_code, "Unknown"),
             "status": exc.status_code,
-            "detail": exc.detail,
+            "detail": exc.detail or "An error occurred",
             "instance": request.url.path,
         },
         headers={"Content-Type": "application/problem+json"},
@@ -106,16 +106,26 @@ async def http_exception_handler(
 ) -> JSONResponse:
     """Normalize auth 401/403 to RFC 9457; pass-through for all others.
 
-    Admin and age-verification paths are excluded and pass through
-    to the default FastAPI handler.
+    Admin and age-verification paths are excluded and return the default
+    FastAPI ``{"detail": ...}`` JSON envelope.
     """
-    # Exclusion: admin and age-verification pass through
+    # Exclusion: admin and age-verification return default FastAPI JSON envelope
     if request.url.path.startswith(("/admin", "/age-verification")):
-        raise exc
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail or ""},
+            headers=exc.headers,
+            media_type="application/json",
+        )
 
-    # Only normalize 401/403
+    # Only normalize 401/403 — other status codes use the default FastAPI envelope
     if exc.status_code not in (401, 403):
-        raise exc
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail or ""},
+            headers=exc.headers,
+            media_type="application/json",
+        )
 
     response = JSONResponse(
         status_code=exc.status_code,

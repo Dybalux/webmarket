@@ -214,31 +214,41 @@ async def test_http_exception_401_preserves_www_authenticate():
 
 @pytest.mark.asyncio
 async def test_http_exception_non_auth_passes_through():
-    """Non-auth 400 re-raises the original HTTPException (pass-through)."""
+    """Non-auth 400 returns default FastAPI JSON envelope (status preserved, application/json)."""
     from fastapi import HTTPException
     from utils.errors import http_exception_handler
 
     exc = HTTPException(status_code=400, detail="Bad request")
     request = _mock_request("/api/v1/products")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await http_exception_handler(request, exc)
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "Bad request"
+    response = await http_exception_handler(request, exc)
+    body = json.loads(response.body)
+
+    assert response.status_code == 400
+    assert response.headers["Content-Type"] == "application/json"
+    assert body == {"detail": "Bad request"}
 
 
 @pytest.mark.asyncio
 async def test_http_exception_admin_path_excluded():
-    """Admin path re-raises exception for default processing."""
+    """Admin path returns default FastAPI JSON envelope (preserves exc.headers)."""
     from fastapi import HTTPException
     from utils.errors import http_exception_handler
 
-    exc = HTTPException(status_code=401, detail="Unauthorized admin")
+    exc = HTTPException(
+        status_code=401,
+        detail="Unauthorized admin",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
     request = _mock_request("/admin/stats")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await http_exception_handler(request, exc)
-    assert exc_info.value.status_code == 401
+    response = await http_exception_handler(request, exc)
+    body = json.loads(response.body)
+
+    assert response.status_code == 401
+    assert response.headers["Content-Type"] == "application/json"
+    assert response.headers.get("WWW-Authenticate") == "Bearer"
+    assert body == {"detail": "Unauthorized admin"}
 
 
 # ============================================================================
@@ -335,3 +345,29 @@ async def test_validation_exception_content_type():
 
     assert response.status_code == 422
     assert response.headers["Content-Type"] == "application/problem+json"
+
+
+# ============================================================================
+# service_error_handler detail-fallback test — Judgment Day F4
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_service_error_handler_detail_fallback_when_none():
+    """ServiceError with detail=None must produce 'An error occurred' fallback."""
+    from services.exceptions import ServiceError
+    from utils.errors import service_error_handler
+
+    exc = ServiceError.__new__(ServiceError)  # bypass __init__ defaults
+    Exception.__init__(exc, "An error occurred")
+    exc.status_code = 500
+    exc.code = "internal_error"
+    exc.detail = None  # explicitly None — malformed subclass scenario
+
+    request = _mock_request("/api/v1/some/path")
+
+    response = await service_error_handler(request, exc)
+    body = json.loads(response.body)
+
+    assert response.status_code == 500
+    assert body["detail"] == "An error occurred"
