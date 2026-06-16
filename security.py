@@ -5,7 +5,7 @@ from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 from config import settings
-from models import TokenData, UserRole, UserLogin # Importamos los modelos definidos
+from models import TokenData, UserRole  # Importamos los modelos definidos
 import logging
 
 logger = logging.getLogger(__name__)
@@ -144,32 +144,3 @@ async def get_current_verified_user(current_user_token_data: TokenData = Depends
         )
     return current_user_token_data
 
-
-def authenticate_user(user: UserLogin) -> dict:
-    """
-    Simula la autenticación de un usuario.
-    En producción, deberías consultar la base de datos y verificar el hash de la contraseña.
-    """
-    # Simulación: usuario hardcodeado
-    fake_user_db = {
-        "admin@example.com": {
-            "user_id": "123",
-            "hashed_password": get_password_hash("123456"),
-            "roles": ["admin"],
-            "age_verified": True
-        }
-    }
-
-    user_record = fake_user_db.get(user.email)
-    if not user_record:
-        return None
-
-    if not verify_password(user.password, user_record["hashed_password"]):
-        return None
-
-    return {
-        "username": user.email,
-        "user_id": user_record["user_id"],
-        "roles": user_record["roles"],
-        "age_verified": user_record["age_verified"]
-    }

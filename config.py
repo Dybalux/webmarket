@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     MERCADOPAGO_ACCESS_TOKEN: Optional[str] = None
     MERCADOPAGO_PUBLIC_KEY: Optional[str] = None
     MERCADOPAGO_WEBHOOK_SECRET: Optional[str] = None  # Para validar firma de webhooks
+    MERCADOPAGO_ALLOW_UNSIGNED_WEBHOOKS: bool = False  # Solo desarrollo: permite webhooks sin firma
     
     # URL base para tus webhooks (importante para desarrollo y producción)
     # En desarrollo apuntamos al Cloudflare Tunnel local, en producción será tu dominio
