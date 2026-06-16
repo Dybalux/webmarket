@@ -113,16 +113,17 @@ async def process_webhook(
     x_signature: Optional[str],
     x_request_id: Optional[str],
 ) -> None:
-    """Process a Mercado Pago IPN webhook. Always succeeds (logs errors)."""
+    """Process a Mercado Pago IPN webhook. Raises ForbiddenError on
+    invalid/missing signature so the global handler returns a 403."""
     logger.info("Webhook: topic=%s id=%s sig=%s req=%s",
                 topic, payment_id, x_signature, x_request_id)
 
-    _validate_signature(payment_id, x_signature, x_request_id)
-
-    if topic != "payment" or not payment_id:
-        return
-
     try:
+        _validate_signature(payment_id, x_signature, x_request_id)
+
+        if topic != "payment" or not payment_id:
+            return
+
         pays = db["payments"]
         orders = db["orders"]
 
@@ -177,6 +178,8 @@ async def process_webhook(
         else:
             logger.info("Order %s state '%s' — skip payment '%s'.", ref, cur, status)
 
+    except ForbiddenError:
+        raise
     except Exception as exc:
         logger.error("Webhook error: %s", exc, exc_info=True)
 
@@ -191,15 +194,37 @@ def _validate_signature(
     x_signature: Optional[str],
     x_request_id: Optional[str],
 ) -> None:
-    """HMAC-SHA256 webhook signature check. Non-blocking (warns only)."""
+    """Validar firma HMAC-SHA256 del webhook de Mercado Pago.
+
+    Bloqueante: lanza ForbiddenError si la firma es inválida, falta,
+    o el secreto no está configurado en producción. Solo permite
+    webhooks sin firma en desarrollo si MERCADOPAGO_ALLOW_UNSIGNED_WEBHOOKS=true.
+    """
     secret = settings.MERCADOPAGO_WEBHOOK_SECRET
+
+    # Branch 1 — Secret not configured
     if not secret:
+        if settings.ENV == "production":
+            raise ForbiddenError(
+                "Webhook secret not configured in production."
+            )
         logger.warning("MERCADOPAGO_WEBHOOK_SECRET not configured.")
         return
-    if not x_signature:
-        logger.info("No x-signature header (normal in MP panel tests).")
-        return
 
+    # Branch 2 — Missing signature header
+    if not x_signature:
+        if (
+            settings.ENV != "production"
+            and settings.MERCADOPAGO_ALLOW_UNSIGNED_WEBHOOKS
+        ):
+            logger.warning(
+                "Allowing unsigned webhook "
+                "(MERCADOPAGO_ALLOW_UNSIGNED_WEBHOOKS=true)."
+            )
+            return
+        raise ForbiddenError("Missing webhook signature.")
+
+    # Branch 3 — Parse and verify HMAC
     try:
         parts: dict[str, str] = {}
         for item in x_signature.split(","):
@@ -209,14 +234,19 @@ def _validate_signature(
         ts = parts.get("ts")
         rh = parts.get("v1")
         if not ts or not rh:
-            logger.warning("x-signature missing ts/v1. Processing anyway.")
-            return
+            raise ForbiddenError("Invalid webhook signature format.")
 
         msg = f"id:{payment_id or ''};request-id:{x_request_id or ''};ts:{ts};"
-        expected = hmac.new(secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
+        expected = hmac.new(
+            secret.encode(), msg.encode(), hashlib.sha256
+        ).hexdigest()
         if not hmac.compare_digest(rh, expected):
-            logger.warning("Invalid webhook signature for id=%s.", payment_id)
-        else:
-            logger.info("Signature OK for id=%s.", payment_id)
+            raise ForbiddenError("Invalid webhook signature.")
+
+        # Branch 4 — Valid signature
+        logger.info("Signature OK for id=%s.", payment_id)
+    except ForbiddenError:
+        raise
     except Exception as exc:
         logger.error("Signature validation error: %s", exc, exc_info=True)
+        raise ForbiddenError("Invalid webhook signature.") from exc
