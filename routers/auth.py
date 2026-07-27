@@ -1,14 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordRequestForm # Para el formulario de login OAuth2
 from fastapi_limiter.depends import RateLimiter
-from datetime import timedelta, datetime
+from datetime import datetime, timezone, timedelta
 from typing import Annotated
 from pymongo.errors import DuplicateKeyError
-from bson import ObjectId # Para manejar los IDs de MongoDB
+from bson import ObjectId
 from dateutil.relativedelta import relativedelta
 
-from models import UserRegister, UserLogin, UserResponse, Token, TokenResponse, RefreshToken, UserRole, TokenData
-from security import get_password_hash, verify_password, create_access_token, create_refresh_token, hash_token, verify_refresh_token, get_current_user_token_data
+from models import UserRegister, UserLogin, UserResponse, Token, TokenResponse, RefreshToken, UserRole, TokenData, ForgotPasswordRequest, PasswordResetConfirm
+from security import (
+    get_password_hash, verify_password, create_access_token, create_refresh_token,
+    hash_token, verify_refresh_token, get_current_user_token_data,
+    get_redis, check_lockout, record_failure, clear_failures,
+    create_reset_token, hash_reset_token,
+)
+from email_service import send_password_reset_email
 from database import get_database, get_collection
 from config import settings
 import logging
@@ -121,20 +127,34 @@ async def register_user(
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     users_collection = Depends(get_users_collection),
-    refresh_tokens_collection = Depends(get_refresh_tokens_collection)
+    refresh_tokens_collection = Depends(get_refresh_tokens_collection),
+    redis_client = Depends(get_redis),
 ):
     """
     Genera un token de acceso JWT y un refresh token para un usuario autenticado.
     Usa el estándar OAuth2 con username y password en un formulario.
     """
+    # F-017: per-account lockout (runs after IP rate limiter, before verify_password)
+    remaining = await check_lockout(redis_client, form_data.username)
+    if remaining > 0:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=f"Account locked. Try again in {remaining} seconds.",
+        )
+
     user = await get_user_by_username_or_email(users_collection, form_data.username)
     if not user or not verify_password(form_data.password, user["hashed_password"]):
+        # F-017: record failure after bad credentials
+        await record_failure(redis_client, form_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Nombre de usuario o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
+    # F-017: success — clear any accumulated failures
+    await clear_failures(redis_client, user["username"])
+
     # Preparar datos para el token
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
@@ -306,3 +326,73 @@ async def admin_test(
             detail="Acceso denegado: Se requiere rol de administrador."
         )
     return {"message": f"Bienvenido administrador {current_admin_user_data.username}!"}
+
+
+# --- Password reset endpoints (F-015) ---
+
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED, operation_id="auth_forgot_password")
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    users_collection = Depends(get_users_collection),
+):
+    """
+    Initiates a password reset. Always returns 202 with an identical body
+    regardless of whether the email exists (enumeration-resistant).
+    """
+    user = await users_collection.find_one({"email": body.email})
+
+    if user:
+        token = create_reset_token()
+        token_hash = hash_reset_token(token)
+
+        reset_tokens = get_collection("password_reset_tokens")
+        await reset_tokens.insert_one({
+            "token_hash": token_hash,
+            "user_id": str(user["_id"]),
+            "expires_at": datetime.now(tz=timezone.utc) + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+            "used": False,
+        })
+
+        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+        await send_password_reset_email(body.email, reset_url)
+
+    # Identical response whether user exists or not — no enumeration
+    return {"message": "If that email is registered, a reset link has been sent."}
+
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK, operation_id="auth_reset_password")
+async def reset_password(
+    body: PasswordResetConfirm,
+    users_collection = Depends(get_users_collection),
+):
+    """
+    Consumes a single-use reset token and updates the user's password.
+    Token is consumed atomically via find_one_and_update.
+    """
+    token_hash = hash_reset_token(body.token)
+    reset_tokens = get_collection("password_reset_tokens")
+
+    # Atomic single-use consumption
+    doc = await reset_tokens.find_one_and_update(
+        {
+            "token_hash": token_hash,
+            "used": False,
+            "expires_at": {"$gt": datetime.now(tz=timezone.utc)},
+        },
+        {"$set": {"used": True}},
+    )
+
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid, expired, or already-used reset token.",
+        )
+
+    # Update password
+    hashed = get_password_hash(body.new_password)
+    await users_collection.update_one(
+        {"_id": ObjectId(doc["user_id"])},
+        {"$set": {"hashed_password": hashed}},
+    )
+
+    return {"message": "Password updated successfully."}

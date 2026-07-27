@@ -1,10 +1,11 @@
 ﻿from bson import ObjectId
-from pydantic import ConfigDict,  BaseModel, Field, EmailStr
+from pydantic import ConfigDict, BaseModel, Field, EmailStr, field_validator
 from pydantic_core import core_schema
 from typing import List, Optional, Any
 from datetime import datetime, timezone
 from pydantic.json_schema import JsonSchemaValue
 import enum
+import re
 
 class PyObjectId(ObjectId):
     @classmethod
@@ -126,12 +127,41 @@ class ProductUpdate(BaseModel):
     )
 
 
+# Common passwords blocklist for password policy (F-009)
+COMMON_PASSWORDS: frozenset[str] = frozenset({
+    "password", "123456", "123456789", "12345678", "1234567890",
+    "qwerty", "abc123", "monkey", "master", "dragon",
+    "111111", "baseball", "iloveyou", "trustno1", "sunshine",
+    "princess", "football", "charlie", "shadow", "michael",
+    "password1", "password123", "admin", "letmein", "welcome",
+    "login", "qwerty123", "1234567", "12345", "12345678910",
+    "password1234", "password12345", "qwerty123456",
+})
+
+
 # Modelos para Usuarios
 class UserRegister(BaseModel):
     username: str = Field(..., min_length=3, max_length=50, description="Nombre de usuario único")
     email: EmailStr = Field(..., description="Correo electrónico válido")
-    password: str = Field(..., min_length=8, description="Contraseña segura (mínimo 8 caracteres)")
+    password: str = Field(..., min_length=12, description="Contraseña segura (mínimo 12 caracteres)")
     birth_date: datetime = Field(..., description="Fecha de nacimiento para verificación de edad")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        if len(v) < 12:
+            raise ValueError("Password must be at least 12 characters long")
+        if v.lower() in COMMON_PASSWORDS:
+            raise ValueError("Password is too common — choose a more unique password")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        if not re.search(r"[!@#$%^&*(),.?\":{}|<>_\-+=\[\]\\\/~`';]", v):
+            raise ValueError("Password must contain at least one special character")
+        return v
 
 
 class UserLogin(BaseModel):
@@ -191,6 +221,33 @@ class AgeVerificationResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+# Password reset schemas (F-015)
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr = Field(..., description="Email address for password reset")
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(..., description="Password reset token from email")
+    new_password: str = Field(..., min_length=12, description="New password (must meet policy)")
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        if len(v) < 12:
+            raise ValueError("Password must be at least 12 characters long")
+        if v.lower() in COMMON_PASSWORDS:
+            raise ValueError("Password is too common — choose a more unique password")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        if not re.search(r"[!@#$%^&*(),.?\":{}|<>_\-+=\[\]\\\/~`';]", v):
+            raise ValueError("Password must contain at least one special character")
+        return v
 
 # Modelos para Paginación
 class PaginationMeta(BaseModel):

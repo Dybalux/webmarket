@@ -1,12 +1,15 @@
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
-from jose import JWTError, jwt
+import jwt as pyjwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 from config import settings
 from models import TokenData, UserRole  # Importamos los modelos definidos
 import logging
+import secrets
+import hashlib
+import redis.asyncio as aioredis
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     else:
         expire = datetime.now(tz=timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire, "iat": datetime.now(tz=timezone.utc)}) # Añade expiración y "issued at"
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    encoded_jwt = pyjwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
 def create_refresh_token() -> str:
@@ -67,6 +70,45 @@ def verify_refresh_token(plain_token: str, hashed_token: str) -> bool:
     """
     return pwd_context.verify(plain_token, hashed_token)
 
+
+# --- Password reset token helpers (F-015) ---
+
+def create_reset_token() -> str:
+    """Generate a cryptographically secure URL-safe reset token."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_reset_token(token: str) -> str:
+    """SHA-256 hash of a reset token for storage (O(1) lookup, no bcrypt overhead)."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+# --- Account lockout helpers (F-017) ---
+
+async def get_redis() -> aioredis.Redis:
+    """FastAPI DI dependency for Redis — overridable in tests via app.dependency_overrides."""
+    return aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+
+
+async def check_lockout(r: aioredis.Redis, username: str) -> int:
+    """Check if account is locked. Returns 0 if unlocked, or remaining seconds if locked."""
+    lock_ttl = await r.ttl(f"login_lock:{username}")
+    return max(lock_ttl, 0)
+
+
+async def record_failure(r: aioredis.Redis, username: str) -> None:
+    """Increment failure counter; lock account at threshold."""
+    fail_key = f"login_fail:{username}"
+    count = await r.incr(fail_key)
+    await r.expire(fail_key, settings.LOGIN_LOCKOUT_SECONDS)
+    if count >= settings.LOGIN_MAX_FAILURES:
+        await r.setex(f"login_lock:{username}", settings.LOGIN_LOCKOUT_SECONDS, "1")
+
+
+async def clear_failures(r: aioredis.Redis, username: str) -> None:
+    """Delete both failure counter and lock on successful login."""
+    await r.delete(f"login_fail:{username}", f"login_lock:{username}")
+
 def decode_access_token(token: str) -> TokenData:
     """
     Decodifica y valida un token JWT.
@@ -74,7 +116,7 @@ def decode_access_token(token: str) -> TokenData:
     Lanza una HTTPException si el token es inválido o expira.
     """
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = pyjwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username: str = payload.get("sub") # 'sub' (subject) convencionalmente se usa para el identificador principal (username)
         user_id: str = payload.get("user_id")
         roles: List[str] = payload.get("roles", []) # Lista de roles del usuario
@@ -92,7 +134,7 @@ def decode_access_token(token: str) -> TokenData:
 
         token_data = TokenData(username=username, user_id=user_id, roles=user_roles, age_verified=age_verified)
         return token_data
-    except JWTError:
+    except pyjwt.PyJWTError:
         logger.warning(f"Error al decodificar JWT: {token}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

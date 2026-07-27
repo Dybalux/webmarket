@@ -121,3 +121,79 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
     except Exception as e:
         # No romper la aplicación si falla el email
         logger.error(f"❌ Error al enviar email de notificación: {e}", exc_info=True)
+
+
+async def send_password_reset_email(to_email: str, reset_url: str):
+    """
+    Sends a password-reset email via Resend following the existing pattern.
+
+    Args:
+        to_email: recipient email address
+        reset_url: full URL the user clicks to reset (contains the token)
+    """
+    if not settings.EMAIL_ENABLED:
+        logger.info(f"📧 Email disabled. Password reset link for {to_email}: {reset_url}")
+        return
+
+    if not settings.RESEND_API_KEY:
+        logger.warning("⚠️ RESEND_API_KEY not configured. Cannot send reset email.")
+        return
+
+    if not settings.RESEND_FROM_EMAIL:
+        logger.warning("⚠️ RESEND_FROM_EMAIL not configured. Cannot send reset email.")
+        return
+
+    try:
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            </head>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f5f5f5;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
+                    <h1 style="color: white; margin: 0; font-size: 24px;">🔐 Reset Your Password</h1>
+                </div>
+
+                <div style="padding: 30px; background: #f9f9f9;">
+                    <div style="background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <p style="color: #333; font-size: 16px;">You requested a password reset. Click the button below to set a new password. This link expires in <strong>1 hour</strong>.</p>
+
+                        <div style="text-align: center; margin: 30px 0;">
+                            <a href="{reset_url}"
+                               style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                      color: white; padding: 14px 28px; text-decoration: none;
+                                      border-radius: 6px; font-weight: bold; font-size: 16px;
+                                      display: inline-block;">
+                                Reset Password
+                            </a>
+                        </div>
+
+                        <p style="color: #666; font-size: 13px;">If you didn't request this, you can safely ignore this email. Your password won't change.</p>
+                    </div>
+                </div>
+
+                <div style="padding: 20px; text-align: center; color: #666; font-size: 12px;">
+                    <p style="margin: 5px 0;">EscabiAPI — Automated notification</p>
+                </div>
+            </body>
+        </html>
+        """
+
+        resend.api_key = settings.RESEND_API_KEY
+
+        params = {
+            "from": f"EscabiAPI <{settings.RESEND_FROM_EMAIL}>",
+            "to": [to_email],
+            "subject": "🔐 Reset your EscabiAPI password",
+            "html": html_content,
+        }
+
+        response = resend.Emails.send(params)
+        logger.info(f"✅ Password reset email sent to {to_email}")
+        logger.debug(f"Resend response: {response}")
+
+    except Exception as e:
+        # Non-raising: same guard as send_new_order_notification
+        logger.error(f"❌ Error sending password reset email to {to_email}: {e}", exc_info=True)

@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     RESEND_FROM_EMAIL: Optional[str] = None  # Email del remitente
     EMAIL_ENABLED: bool = False  # Activar/desactivar emails
 
+    # Auth hardening
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60
+    LOGIN_MAX_FAILURES: int = 5
+    LOGIN_LOCKOUT_SECONDS: int = 900
+
     # Entorno
     ENV: str = "development"
 

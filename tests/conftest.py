@@ -62,6 +62,7 @@ from security import (
     get_current_active_user_id,
     get_current_admin_user,
     get_current_user_token_data,
+    get_redis,
 )
 
 
@@ -249,6 +250,55 @@ def auth_admin_dep(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Fake Redis for lockout tests (F-017)
+# ---------------------------------------------------------------------------
+
+
+class FakeRedis:
+    """Minimal async in-memory Redis substitute for lockout helpers.
+
+    Implements only the methods used by security.py lockout helpers:
+    get, setex, incr, delete, ttl, expire.
+    """
+
+    def __init__(self) -> None:
+        self._store: dict[str, str] = {}
+        self._ttls: dict[str, float] = {}
+
+    async def get(self, key: str) -> str | None:
+        return self._store.get(key)
+
+    async def setex(self, key: str, ttl: int, value: str) -> None:
+        self._store[key] = value
+        self._ttls[key] = ttl
+
+    async def expire(self, key: str, ttl: int) -> None:
+        if key in self._store:
+            self._ttls[key] = ttl
+
+    async def incr(self, key: str) -> int:
+        val = int(self._store.get(key, 0)) + 1
+        self._store[key] = str(val)
+        return val
+
+    async def delete(self, *keys: str) -> None:
+        for k in keys:
+            self._store.pop(k, None)
+            self._ttls.pop(k, None)
+
+    async def ttl(self, key: str) -> int:
+        if key not in self._store:
+            return -2
+        return int(self._ttls.get(key, 0))
+
+
+@pytest.fixture
+def fake_redis() -> FakeRedis:
+    """Fresh FakeRedis instance per test."""
+    return FakeRedis()
+
+
+# ---------------------------------------------------------------------------
 # Side-effect silencers
 # ---------------------------------------------------------------------------
 
@@ -270,6 +320,12 @@ def silence_side_effects(monkeypatch):
     monkeypatch.setattr(
         email_service,
         "send_new_order_notification",
+        AsyncMock(return_value=None),
+        raising=True,
+    )
+    monkeypatch.setattr(
+        email_service,
+        "send_password_reset_email",
         AsyncMock(return_value=None),
         raising=True,
     )
@@ -323,16 +379,19 @@ def _build_test_app(db: AsyncIOMotorDatabase) -> FastAPI:
 
 
 @pytest_asyncio.fixture
-async def test_app(test_db, auth_user_dep) -> FastAPI:
+async def test_app(test_db, auth_user_dep, fake_redis) -> FastAPI:
     """Minimal FastAPI app for router-level tests.
 
     Bypasses MaintenanceModeMiddleware and the production Database singleton
     by overriding `get_database` and `get_collection` in app.dependency_overrides.
-    Also applies the default customer auth overrides.
+    Also applies the default customer auth overrides and injects FakeRedis
+    for lockout tests.
     """
     app = _build_test_app(test_db)
     for dep, override in auth_user_dep.items():
         app.dependency_overrides[dep] = override
+    # F-017: inject fake Redis so lockout helpers work without a real server
+    app.dependency_overrides[get_redis] = lambda: fake_redis
     return app
 
 
