@@ -28,6 +28,7 @@ from services.exceptions import (
     NotFoundError,
 )
 from services.pricing import get_adjusted_price
+from utils.sanitize import escape_regex
 
 logger = logging.getLogger(__name__)
 
@@ -108,9 +109,10 @@ async def list_products(
             query["price"] = {"$lte": max_price}
 
     if search:
+        safe_search = escape_regex(search)
         query["$or"] = [
-            {"name": {"$regex": search, "$options": "i"}},
-            {"description": {"$regex": search, "$options": "i"}},
+            {"name": {"$regex": safe_search, "$options": "i"}},
+            {"description": {"$regex": safe_search, "$options": "i"}},
         ]
 
     total = await products.count_documents(query)

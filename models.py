@@ -40,6 +40,17 @@ class PyObjectId(ObjectId):
         raise TypeError("ObjectId must be a string or ObjectId instance")
     
 # --- Enumeraciones para mejorar la legibilidad y validación ---
+# --- Base for request models with strict validation ---
+class BaseRequestModel(BaseModel):
+    """Base for all incoming request models.
+
+    ``extra="forbid"`` rejects any payload fields not declared on the model,
+    returning a 422 (via FastAPI's RFC 9457 handler) instead of silently
+    ignoring unexpected data.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+
 class ProductCategory(str, enum.Enum):
     BEER = "Cerveza"
     WINE_RED = "Vino Tinto"
@@ -105,7 +116,7 @@ class AdminProduct(Product):
     """Versión extendida del producto para administradores que incluye el precio neto"""
     net_price: Optional[float] = Field(None, ge=0, description="Precio de costo o neto (Visible solo para admin)", exclude=False)
 
-class ProductUpdate(BaseModel):
+class ProductUpdate(BaseRequestModel):
     """Modelo para actualizar un producto, permite campos opcionales y cálculo por ganancia"""
     name: Optional[str] = Field(None, min_length=3, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
@@ -140,7 +151,7 @@ COMMON_PASSWORDS: frozenset[str] = frozenset({
 
 
 # Modelos para Usuarios
-class UserRegister(BaseModel):
+class UserRegister(BaseRequestModel):
     username: str = Field(..., min_length=3, max_length=50, description="Nombre de usuario único")
     email: EmailStr = Field(..., description="Correo electrónico válido")
     password: str = Field(..., min_length=12, description="Contraseña segura (mínimo 12 caracteres)")
@@ -164,7 +175,7 @@ class UserRegister(BaseModel):
         return v
 
 
-class UserLogin(BaseModel):
+class UserLogin(BaseRequestModel):
     email_or_username: str = Field(..., description="Nombre de usuario o correo electrónico")
     password: str = Field(..., description="Contraseña")
 
@@ -224,11 +235,11 @@ class AgeVerificationResponse(BaseModel):
 
 
 # Password reset schemas (F-015)
-class ForgotPasswordRequest(BaseModel):
+class ForgotPasswordRequest(BaseRequestModel):
     email: EmailStr = Field(..., description="Email address for password reset")
 
 
-class PasswordResetConfirm(BaseModel):
+class PasswordResetConfirm(BaseRequestModel):
     token: str = Field(..., description="Password reset token from email")
     new_password: str = Field(..., min_length=12, description="New password (must meet policy)")
 
@@ -266,7 +277,7 @@ class PaginatedResponse(BaseModel):
 
 
 # Modelos para Carrito de Compras
-class CartItem(BaseModel):
+class CartItem(BaseRequestModel):
     product_id: str = Field(..., description="ID del producto o combo en el carrito")
     quantity: int = Field(..., gt=0, description="Cantidad del producto/combo (mayor que cero)")
 
@@ -318,14 +329,14 @@ class OrderItem(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-class Address(BaseModel):
+class Address(BaseRequestModel):
     street: str
     city: str
     state: str
     zip_code: str
     country: str
     
-class OrderCreate(BaseModel):
+class OrderCreate(BaseRequestModel):
     items: List[CartItem] # Usamos CartItem para la creación, luego se convierte a OrderItem
     shipping_address: Address
     shipping_zone: str = Field(..., description="Zona de envío: 'central', 'remote' o 'pickup'")
@@ -405,7 +416,7 @@ class PaymentSettings(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-class PaymentSettingsUpdate(BaseModel):
+class PaymentSettingsUpdate(BaseRequestModel):
     """Modelo para actualizar configuración de pagos y contacto"""
     transfer_alias: str = Field(..., min_length=3, max_length=100, description="Alias bancario")
     transfer_whatsapp: str = Field(..., pattern=r"^\+?[0-9]{10,15}$", description="Número de WhatsApp (10-15 dígitos)")
@@ -445,7 +456,7 @@ class ShippingSettings(BaseModel):
     )
 
 # Modelos para Combos de Productos
-class ComboItem(BaseModel):
+class ComboItem(BaseRequestModel):
     """Item individual dentro de un combo"""
     product_id: str = Field(..., description="ID del producto que forma parte del combo")
     quantity: int = Field(..., gt=0, description="Cantidad de este producto en el combo")
@@ -468,7 +479,7 @@ class Combo(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-class ComboCreate(BaseModel):
+class ComboCreate(BaseRequestModel):
     """Modelo para crear un combo"""
     name: str = Field(..., min_length=3, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
@@ -477,7 +488,7 @@ class ComboCreate(BaseModel):
     items: List[ComboItem] = Field(..., min_length=1)
     active: bool = True
 
-class ComboUpdate(BaseModel):
+class ComboUpdate(BaseRequestModel):
     """Modelo para actualizar un combo"""
     name: Optional[str] = Field(None, min_length=3, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
@@ -537,7 +548,7 @@ class DynamicPricingSettings(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-class DynamicPricingUpdate(BaseModel):
+class DynamicPricingUpdate(BaseRequestModel):
     """Modelo para actualizar configuración de precios dinámicos"""
     enabled: bool
     multiplier: float = Field(..., gt=0)
@@ -546,7 +557,7 @@ class DynamicPricingUpdate(BaseModel):
     start_hour: int = Field(..., ge=0, le=23)
     end_hour: int = Field(..., ge=0, le=23)
 
-class BulkPriceUpdate(BaseModel):
+class BulkPriceUpdate(BaseRequestModel):
     """Modelo para actualizar precios masivamente"""
     percentage: float = Field(..., description="Porcentaje de aumento (ej: 0.10 para 10%)")
     target: str = Field("all", description="Objetivo de la actualización: 'all' o ID de categoría")

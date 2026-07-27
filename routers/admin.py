@@ -6,11 +6,20 @@ from datetime import datetime, timezone, timedelta
 from models import Order, UserResponse, OrderStatus, UserRole, TokenData, ShippingSettings, BulkPriceUpdate, SystemSettings
 from database import get_database, get_collection
 from security import get_current_admin_user
+from utils.sanitize import escape_regex
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# --- Sort-field whitelists (F-010) ---
+ALLOWED_USER_SORT_FIELDS: frozenset[str] = frozenset(
+    {"created_at", "username", "email", "role", "updated_at"}
+)
+ALLOWED_ORDER_SORT_FIELDS: frozenset[str] = frozenset(
+    {"created_at", "total_amount", "status"}
+)
 
 # Colecciones de MongoDB
 def get_users_collection(db=Depends(get_database)):
@@ -128,14 +137,22 @@ async def get_admin_users(
     [Admin] Obtiene la lista completa de usuarios con opciones de filtrado y paginación.
     Requiere permisos de administrador.
     """
+    # Sort-field validation BEFORE try (ADR-2: HTTPException inside try → 500)
+    if sort_by not in ALLOWED_USER_SORT_FIELDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid sort field: '{sort_by}'. Allowed: {', '.join(sorted(ALLOWED_USER_SORT_FIELDS))}",
+        )
+
     try:
         # Construir query
         query = {}
         
         if search:
+            safe_search = escape_regex(search)
             query["$or"] = [
-                {"username": {"$regex": search, "$options": "i"}},
-                {"email": {"$regex": search, "$options": "i"}}
+                {"username": {"$regex": safe_search, "$options": "i"}},
+                {"email": {"$regex": safe_search, "$options": "i"}}
             ]
         
         if role:
@@ -193,6 +210,13 @@ async def get_admin_orders(
     Incluye información del usuario asociado a cada pedido.
     Requiere permisos de administrador.
     """
+    # Sort-field validation BEFORE try (ADR-2: HTTPException inside try → 500)
+    if sort_by not in ALLOWED_ORDER_SORT_FIELDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid sort field: '{sort_by}'. Allowed: {', '.join(sorted(ALLOWED_ORDER_SORT_FIELDS))}",
+        )
+
     try:
         # Construir query
         query = {}

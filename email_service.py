@@ -1,6 +1,7 @@
 """
 Servicio de email usando Resend para notificar a admins sobre nuevas órdenes.
 """
+import html
 import resend
 from config import settings
 import logging
@@ -49,7 +50,13 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
             return
         
         logger.info(f"📧 Enviando notificación a {len(admin_emails)} admin(s): {', '.join(admin_emails)}")
-        
+
+        # Escape user-provided values to prevent XSS in HTML emails
+        safe_order_id = html.escape(str(order_id))
+        safe_user_email = html.escape(str(user_email))
+        safe_total_amount = html.escape(str(total_amount))
+        safe_payment_method = html.escape(str(payment_method))
+
         # Crear el contenido HTML del email
         html_content = f"""
         <!DOCTYPE html>
@@ -62,30 +69,30 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
                     <h1 style="color: white; margin: 0; font-size: 24px;">🛒 Nueva Orden Recibida</h1>
                 </div>
-                
+
                 <div style="padding: 30px; background: #f9f9f9;">
                     <div style="background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                         <h2 style="color: #333; margin-top: 0; font-size: 20px;">Detalles de la Orden</h2>
-                        
+
                         <table style="width: 100%; border-collapse: collapse;">
                             <tr>
                                 <td style="padding: 12px 0; border-bottom: 1px solid #eee;"><strong>Orden:</strong></td>
-                                <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right;">#{order_id}</td>
+                                <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right;">#{safe_order_id}</td>
                             </tr>
                             <tr>
                                 <td style="padding: 12px 0; border-bottom: 1px solid #eee;"><strong>Cliente:</strong></td>
-                                <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right;">{user_email}</td>
+                                <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right;">{safe_user_email}</td>
                             </tr>
                             <tr>
                                 <td style="padding: 12px 0; border-bottom: 1px solid #eee;"><strong>Total:</strong></td>
-                                <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right; color: #4CAF50; font-size: 18px; font-weight: bold;">${total_amount:,.2f}</td>
+                                <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right; color: #4CAF50; font-size: 18px; font-weight: bold;">${safe_total_amount}</td>
                             </tr>
                             <tr>
                                 <td style="padding: 12px 0;"><strong>Método de Pago:</strong></td>
-                                <td style="padding: 12px 0; text-align: right;">{payment_method}</td>
+                                <td style="padding: 12px 0; text-align: right;">{safe_payment_method}</td>
                             </tr>
                         </table>
-                        
+
                         <div style="margin-top: 25px; padding: 15px; background: {'#fff3cd' if payment_method == 'Transferencia Bancaria' else '#d4edda'}; border-radius: 5px; border-left: 4px solid {'#ffc107' if payment_method == 'Transferencia Bancaria' else '#28a745'};">
                             <p style="margin: 0; color: #333;">
                                 {'⚠️ <strong>Requiere confirmación manual de pago por transferencia</strong>' if payment_method == 'Transferencia Bancaria' else '✅ <strong>Pago procesado automáticamente por Mercado Pago</strong>'}
@@ -93,7 +100,7 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
                         </div>
                     </div>
                 </div>
-                
+
                 <div style="padding: 20px; text-align: center; color: #666; font-size: 12px;">
                     <p style="margin: 5px 0;">EscabiAPI - Sistema de Notificaciones</p>
                     <p style="margin: 5px 0;">Este es un email automático, por favor no responder.</p>
@@ -144,6 +151,9 @@ async def send_password_reset_email(to_email: str, reset_url: str):
         return
 
     try:
+        # Escape user-provided URL to prevent XSS in HTML email
+        safe_reset_url = html.escape(str(reset_url))
+
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -161,7 +171,7 @@ async def send_password_reset_email(to_email: str, reset_url: str):
                         <p style="color: #333; font-size: 16px;">You requested a password reset. Click the button below to set a new password. This link expires in <strong>1 hour</strong>.</p>
 
                         <div style="text-align: center; margin: 30px 0;">
-                            <a href="{reset_url}"
+                            <a href="{safe_reset_url}"
                                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                                       color: white; padding: 14px 28px; text-decoration: none;
                                       border-radius: 6px; font-weight: bold; font-size: 16px;
