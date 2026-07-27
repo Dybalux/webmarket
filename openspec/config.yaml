@@ -1,25 +1,28 @@
 # openspec/config.yaml — webmarket SDD configuration
 # Generated: 2026-06-09 by sdd-init
+# Re-initialized: 2026-07-26 by sdd-init (authoritative refresh)
 
 schema: spec-driven
 
 context: |
   Tech stack: Python 3.13, FastAPI 0.116, Motor 3.7 (MongoDB async), Pydantic 2.11, Redis 6.4, MercadoPago 2.3, Resend 2.5
-  Architecture: Flat module structure (routers/, models.py, database.py, config.py). No service/repository layers. Singleton DB connection.
-  Testing: No test infrastructure. pytest not installed. No test files.
-  Style: Spanish comments, English identifiers. Direct DB access in routers. FastAPI dep injection for DB collections.
-  Deployment: Railway (Dockerfile), Python 3.13-alpine, gunicorn for prod.
+  Architecture: FastAPI routers/ over a services/ layer (cart, orders, payments, inventory, products, combos, pricing, shipping). models.py, database.py singleton, config.py settings.
+  Testing: pytest 9 + pytest-asyncio (auto mode) + mongomock-motor (in-memory Mongo) + httpx AsyncClient. 109 tests, collect ~0.2s. Markers: unit, integration, endpoint, xfail_bug.
+  Style: Spanish comments, English identifiers. FastAPI dependency injection for DB collections. Coverage via pytest-cov (baseline fail_under=0).
+  Deployment: Railway (Dockerfile, python 3.13-alpine, gunicorn). CI: GitHub Actions runs pytest on PRs to dev/main; cd.yml for deploy.
 
 testing:
   strict_tdd: false
-  reason: "Strict TDD disabled — we ship tests alongside code in the same PR; the change is documentation-as-spec, not a strict red/green discipline."
+  reason: "Strict TDD disabled by explicit team convention — tests ship alongside code in the same PR; the change is documentation-as-spec, not a strict red/green discipline. Runner is fast (109 tests collect in ~0.2s), so TDD is feasible if a change opts in."
   runner: pytest
   framework: pytest
+  test_command: "pytest tests/ -v --tb=short"
+  coverage_command: "pytest --cov"
   layers:
-    unit: true
-    integration: true
-    e2e: true
-  coverage: true
+    unit: true        # tests/unit + tests/test_*.py, mongomock-motor, no network
+    integration: true # tests/integration, router-level against in-memory Mongo
+    e2e: false        # no browser/E2E tool detected; 'endpoint' marker covers HTTP-level via httpx
+  coverage: true      # pytest-cov 5.0; pytest.ini [coverage] source=routers,stock_helpers,models,database,services
   quality:
     linter: false
     type_checker: false
@@ -38,11 +41,11 @@ rules:
     - Group by phase, use hierarchical numbering
     - Keep tasks completable in one session
   apply:
-    - Follow existing code patterns (FastAPI routers, Pydantic models, Motor async)
+    - Follow existing code patterns (FastAPI routers, services/ layer, Pydantic models, Motor async)
     tdd: false
-    test_command: ""
+    test_command: "pytest tests/ -v --tb=short"
   verify:
-    test_command: ""
+    test_command: "pytest tests/ -v --tb=short"
     build_command: "python main.py"
     coverage_threshold: 0
   archive:
