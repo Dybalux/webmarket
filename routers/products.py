@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, Response
 from typing import Optional
 from decimal import Decimal
 from bson import ObjectId
@@ -9,6 +9,7 @@ from models import Product, ProductCategory, TokenData, AdminProduct, ProductUpd
 from database import get_database
 from security import get_current_admin_user
 from services import products as products_service
+import audit_logger
 
 router = APIRouter()
 
@@ -21,6 +22,7 @@ router = APIRouter()
 @router.post("/", response_model=AdminProduct, status_code=status.HTTP_201_CREATED)
 async def create_product(
     product: AdminProduct,
+    request: Request,
     db: AsyncIOMotorDatabase = Depends(get_database),
     current_user: TokenData = Depends(get_current_admin_user),
 ):
@@ -28,7 +30,12 @@ async def create_product(
     Crea un nuevo producto (bebida) en el catálogo.
     Requiere permisos de administrador.
     """
-    return await products_service.create_product(db, product, current_user.user_id)
+    result = await products_service.create_product(db, product, current_user.user_id)
+    await audit_logger.log_audit(
+        audit_logger.AuditEvent.ADMIN_PRODUCT_CREATED, request,
+        {"product_id": str(result.id), "name": result.name},
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +104,7 @@ async def read_product(
 async def update_product(
     product_id: str,
     product_update: ProductUpdate,
+    request: Request,
     db: AsyncIOMotorDatabase = Depends(get_database),
     current_admin_user: TokenData = Depends(get_current_admin_user),
 ):
@@ -108,9 +116,14 @@ async def update_product(
     if not ObjectId.is_valid(product_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de producto inválido.")
 
-    return await products_service.update_product(
+    result = await products_service.update_product(
         db, product_id, product_update, current_admin_user.user_id
     )
+    await audit_logger.log_audit(
+        audit_logger.AuditEvent.ADMIN_PRODUCT_UPDATED, request,
+        {"product_id": product_id},
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------

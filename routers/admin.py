@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from typing import List, Optional
 from bson import ObjectId
 from datetime import datetime, timezone, timedelta
@@ -9,6 +9,7 @@ from database import get_database, get_collection
 from security import get_current_admin_user
 from utils.sanitize import escape_regex
 from utils.money import from_decimal128, quantize_money, decimalize_doc
+import audit_logger
 import logging
 
 logger = logging.getLogger(__name__)
@@ -291,6 +292,7 @@ async def get_admin_orders(
 async def update_user_role(
     user_id: str,
     new_role: UserRole,
+    request: Request,
     users_collection = Depends(get_users_collection),
     current_admin_user: TokenData = Depends(get_current_admin_user)
 ):
@@ -342,6 +344,15 @@ async def update_user_role(
         updated_user = await users_collection.find_one({"_id": ObjectId(user_id)})
         updated_user.pop("hashed_password", None)  # No devolver la contraseña
         
+        await audit_logger.log_audit(
+            audit_logger.AuditEvent.ADMIN_ROLE_CHANGED, request,
+            {
+                "admin_id": current_admin_user.user_id,
+                "target_user": user["username"],
+                "from_role": current_role,
+                "to_role": new_role.value,
+            },
+        )
         return UserResponse(**updated_user)
     
     except HTTPException:

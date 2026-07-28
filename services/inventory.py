@@ -12,6 +12,7 @@ services.exceptions, and return Pydantic models or domain objects.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -20,6 +21,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from models import InventoryAlert, Product
 from services.exceptions import NotFoundError
+import audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,8 @@ async def update_stock(
     product_id: str,
     new_stock: int,
     admin_user_id: str,
+    *,
+    audit_ctx: audit_logger.AuditContext | None = None,
 ) -> Product:
     """Set a product's stock to an exact value (admin operation).
 
@@ -43,6 +47,12 @@ async def update_stock(
         NotFoundError: when the product_id does not exist in the database.
     """
     products = db["products"]
+
+    # Leer stock anterior para determinar si es decremento o restauración
+    current = await products.find_one({"_id": ObjectId(product_id)})
+    if not current:
+        raise NotFoundError("Producto no encontrado.")
+    old_stock = current.get("stock", 0)
 
     result = await products.update_one(
         {"_id": ObjectId(product_id)},
@@ -61,6 +71,21 @@ async def update_stock(
         product_id,
         new_stock,
     )
+
+    # Fire-and-forget audit — determinar evento por delta
+    delta = new_stock - old_stock
+    if delta < 0:
+        event = audit_logger.AuditEvent.STOCK_DECREMENTED
+    else:
+        event = audit_logger.AuditEvent.STOCK_RESTORED
+    asyncio.create_task(
+        audit_logger.log_audit_ctx(
+            event,
+            ctx=audit_ctx,
+            details={"product_id": product_id, "old_stock": old_stock, "new_stock": new_stock},
+        )
+    )
+
     return Product(**updated)
 
 
@@ -69,6 +94,8 @@ async def add_stock(
     product_id: str,
     quantity: int,
     admin_user_id: str,
+    *,
+    audit_ctx: audit_logger.AuditContext | None = None,
 ) -> Product:
     """Add a quantity to a product's stock (replenishment).
 
@@ -94,6 +121,16 @@ async def add_stock(
         quantity,
         product_id,
     )
+
+    # Fire-and-forget audit — add_stock siempre es RESTORE
+    asyncio.create_task(
+        audit_logger.log_audit_ctx(
+            audit_logger.AuditEvent.STOCK_RESTORED,
+            ctx=audit_ctx,
+            details={"product_id": product_id, "quantity_added": quantity},
+        )
+    )
+
     return Product(**updated)
 
 

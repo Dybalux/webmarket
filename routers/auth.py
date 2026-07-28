@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Response
 from fastapi.security import OAuth2PasswordRequestForm # Para el formulario de login OAuth2
 from fastapi_limiter.depends import RateLimiter
 from datetime import datetime, timezone, timedelta
@@ -17,6 +17,7 @@ from security import (
 from email_service import send_password_reset_email
 from database import get_database, get_collection
 from config import settings
+import audit_logger
 import logging
 
 logger = logging.getLogger(__name__)
@@ -52,9 +53,10 @@ async def create_user_in_db(collection, user_data: UserRegister) -> UserResponse
     today = datetime.now(tz=timezone.utc)
     birth_date = user_data.birth_date
     
-    # Si la fecha de nacimiento tiene zona horaria (offset-aware), la convertimos a naive para comparar con utcnow()
+    # Comparar en naive UTC para evitar TypeError offset-naive vs offset-aware
     if birth_date.tzinfo is not None:
         birth_date = birth_date.replace(tzinfo=None)
+    today = today.replace(tzinfo=None)
     
     age = relativedelta(today, birth_date).years
     
@@ -96,6 +98,7 @@ async def create_user_in_db(collection, user_data: UserRegister) -> UserResponse
 @router.post("/register", status_code=status.HTTP_201_CREATED, operation_id="auth_register_user")
 async def register_user(
     user_data: UserRegister,
+    request: Request,
     users_collection = Depends(get_users_collection)
 ):
     """
@@ -120,11 +123,16 @@ async def register_user(
     new_user = await create_user_in_db(users_collection, user_data)
     
     logger.info(f"Usuario {new_user.username} registrado con éxito.")
+    await audit_logger.log_audit(
+        audit_logger.AuditEvent.USER_REGISTERED, request,
+        {"username": new_user.username},
+    )
     return new_user
 
 # Se permitirán un máximo de 5 intentos de login por minuto desde la misma dirección IP. Si se supera, la API devolverá automáticamente un error 429 Too Many Requests.
 @router.post("/token", response_model=TokenResponse, operation_id="auth_login_token", dependencies=[Depends(RateLimiter(times=5, seconds=60))])
 async def login_for_access_token(
+    request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     users_collection = Depends(get_users_collection),
     refresh_tokens_collection = Depends(get_refresh_tokens_collection),
@@ -146,6 +154,10 @@ async def login_for_access_token(
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         # F-017: record failure after bad credentials
         await record_failure(redis_client, form_data.username)
+        await audit_logger.log_audit(
+            audit_logger.AuditEvent.USER_LOGIN_FAILED, request,
+            {"username": form_data.username},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Nombre de usuario o contraseña incorrectos",
@@ -188,6 +200,10 @@ async def login_for_access_token(
     await refresh_tokens_collection.insert_one(refresh_token_data)
     
     logger.info(f"Usuario {user['username']} ha iniciado sesión y recibido tokens.")
+    await audit_logger.log_audit(
+        audit_logger.AuditEvent.USER_LOGIN_SUCCESS, request,
+        {"username": user["username"]},
+    )
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -333,6 +349,7 @@ async def admin_test(
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED, operation_id="auth_forgot_password")
 async def forgot_password(
     body: ForgotPasswordRequest,
+    request: Request,
     users_collection = Depends(get_users_collection),
 ):
     """
@@ -357,12 +374,17 @@ async def forgot_password(
         await send_password_reset_email(body.email, reset_url)
 
     # Identical response whether user exists or not — no enumeration
+    await audit_logger.log_audit(
+        audit_logger.AuditEvent.PASSWORD_RESET_REQUESTED, request,
+        {"email": body.email},
+    )
     return {"message": "If that email is registered, a reset link has been sent."}
 
 
 @router.post("/reset-password", status_code=status.HTTP_200_OK, operation_id="auth_reset_password")
 async def reset_password(
     body: PasswordResetConfirm,
+    request: Request,
     users_collection = Depends(get_users_collection),
 ):
     """
@@ -395,4 +417,8 @@ async def reset_password(
         {"$set": {"hashed_password": hashed}},
     )
 
+    await audit_logger.log_audit(
+        audit_logger.AuditEvent.PASSWORD_RESET_COMPLETED, request,
+        {"user_id": doc["user_id"]},
+    )
     return {"message": "Password updated successfully."}

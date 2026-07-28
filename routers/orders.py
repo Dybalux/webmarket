@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from typing import List
 from bson import ObjectId
 
@@ -8,6 +8,7 @@ from security import (
     get_current_active_user_id,
     get_current_admin_user,
     get_current_verified_user,
+    get_redis,
 )
 from services.orders import (
     create_order as _svc_create_order,
@@ -17,6 +18,13 @@ from services.orders import (
     update_order_status as _svc_update_order_status,
 )
 from services.shipping import get_shipping_prices as _svc_get_shipping_prices
+from utils.idempotency import (
+    build_key,
+    fallback_key,
+    get_or_set,
+    validate_key,
+)
+import audit_logger
 import logging
 
 logger = logging.getLogger(__name__)
@@ -43,13 +51,39 @@ async def get_shipping_prices(db=Depends(get_database)):
 @router.post("/", response_model=Order, status_code=status.HTTP_201_CREATED)
 async def create_order_endpoint(
     order_data: OrderCreate,
+    request: Request,
     payment_method: PaymentMethod = PaymentMethod.MERCADO_PAGO,
     user_id: str = Depends(get_current_active_user_id),
     db=Depends(get_database),
     current_verified_user: TokenData = Depends(get_current_verified_user),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    redis=Depends(get_redis),
 ):
-    """Create an order from the user's cart. Requires age verification."""
-    return await _svc_create_order(db, user_id, order_data, payment_method)
+    """Create an order from the user's cart. Requires age verification.
+
+    Idempotency: duplicate POST with the same Idempotency-Key (or same
+    payload for clients that omit the header) returns the cached response
+    without re-executing the handler.
+    """
+    # Validar header como UUID-4 (400 si inválido, None si ausente).
+    validated = validate_key(idempotency_key)
+
+    # Construir clave de idempotencia (fallback si no hay header).
+    if validated:
+        idem_key = build_key(user_id, "orders", validated)
+    else:
+        fb = fallback_key(user_id, "orders", order_data)
+        idem_key = build_key(user_id, "orders", fb)
+
+    ctx = audit_logger.AuditContext.from_request(request)
+
+    async def _create():
+        return await _svc_create_order(
+            db, user_id, order_data, payment_method, audit_ctx=ctx
+        )
+
+    result, was_cached = await get_or_set(redis, idem_key, _create)
+    return result
 
 
 # ---------------------------------------------------------------------------

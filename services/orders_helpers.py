@@ -11,6 +11,7 @@ These functions are NOT part of the public API — they exist solely to keep
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from decimal import Decimal
 from typing import List
@@ -27,6 +28,7 @@ from services.exceptions import (
 )
 from services.pricing import get_adjusted_price
 from utils.money import from_decimal128
+import audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,8 @@ logger = logging.getLogger(__name__)
 async def _decrement_stock_batch(
     db: AsyncIOMotorDatabase,
     items: list[dict],
+    *,
+    audit_ctx: audit_logger.AuditContext | None = None,
 ) -> None:
     """Decrement product stock with $gte guard; roll back on race condition.
 
@@ -66,6 +70,15 @@ async def _decrement_stock_batch(
                 f"concurrente. Por favor, intentá nuevamente."
             )
         applied.append(p)
+
+    # Fire-and-forget audit — nunca bloquea la respuesta (S1.4)
+    asyncio.create_task(
+        audit_logger.log_audit_ctx(
+            audit_logger.AuditEvent.STOCK_DECREMENTED,
+            ctx=audit_ctx,
+            details={"products_affected": len(applied)},
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

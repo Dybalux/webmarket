@@ -257,8 +257,8 @@ def auth_admin_dep(monkeypatch):
 class FakeRedis:
     """Minimal async in-memory Redis substitute for lockout helpers.
 
-    Implements only the methods used by security.py lockout helpers:
-    get, setex, incr, delete, ttl, expire.
+    Implements only the methods used by security.py lockout helpers and
+    utils/idempotency.py: get, setex, incr, delete, ttl, expire, set.
     """
 
     def __init__(self) -> None:
@@ -267,6 +267,30 @@ class FakeRedis:
 
     async def get(self, key: str) -> str | None:
         return self._store.get(key)
+
+    async def set(
+        self,
+        key: str,
+        value: str,
+        *,
+        nx: bool = False,
+        ex: int | None = None,
+        keepttl: bool = False,
+    ) -> bool | None:
+        """Redis SET with optional NX, EX, and KEEPTTL flags.
+
+        - nx=True: set only if key does NOT exist. Returns True if set, None otherwise.
+        - ex: TTL in seconds.
+        - keepttl: preserve existing TTL when overwriting.
+        """
+        if nx and key in self._store:
+            return None  # key already exists — NX miss
+        self._store[key] = value
+        if ex is not None:
+            self._ttls[key] = ex
+        elif not keepttl:
+            self._ttls.pop(key, None)
+        return True
 
     async def setex(self, key: str, ttl: int, value: str) -> None:
         self._store[key] = value
@@ -316,6 +340,9 @@ def silence_side_effects(monkeypatch):
 
     monkeypatch.setattr(
         audit_logger, "log_audit", AsyncMock(return_value=None), raising=True
+    )
+    monkeypatch.setattr(
+        audit_logger, "log_audit_ctx", AsyncMock(return_value=None), raising=True
     )
     monkeypatch.setattr(
         email_service,

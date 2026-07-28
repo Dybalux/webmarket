@@ -1,11 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import Response
 from bson import ObjectId
 import logging
 
 from database import get_database
-from security import get_current_active_user_id
+from security import get_current_active_user_id, get_redis
 from services.payments import create_mp_preference, process_webhook
+from utils.idempotency import (
+    build_key,
+    fallback_key,
+    get_or_set,
+    validate_key,
+)
+import audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -15,22 +22,43 @@ router = APIRouter()
 @router.post("/create-preference/{order_id}", response_model=dict)
 async def create_payment_preference(
     order_id: str,
+    request: Request,
     user_id: str = Depends(get_current_active_user_id),
     db=Depends(get_database),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    redis=Depends(get_redis),
 ):
-    """Create a Mercado Pago preference for a PENDING order."""
+    """Create a Mercado Pago preference for a PENDING order.
+
+    Idempotency: duplicate POST with the same Idempotency-Key (or same
+    payload for clients that omit the header) returns the cached response.
+    """
     if not ObjectId.is_valid(order_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ID de pedido inválido.",
         )
 
-    try:
-        return await create_mp_preference(db, user_id, order_id)
-    except RuntimeError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+    validated = validate_key(idempotency_key)
+
+    if validated:
+        idem_key = build_key(user_id, "payments/create-preference", validated)
+    else:
+        fb = fallback_key(user_id, "payments/create-preference", order_id)
+        idem_key = build_key(user_id, "payments/create-preference", fb)
+
+    ctx = audit_logger.AuditContext.from_request(request)
+
+    async def _create_pref():
+        try:
+            return await create_mp_preference(db, user_id, order_id, audit_ctx=ctx)
+        except RuntimeError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            )
+
+    result, was_cached = await get_or_set(redis, idem_key, _create_pref)
+    return result
 
 
 @router.post("/webhook")
@@ -52,6 +80,11 @@ async def handle_mercadopago_webhook(
 
     logger.info("Headers: x-signature=%s x-request-id=%s", x_signature, x_request_id)
 
-    await process_webhook(db, topic, payment_id, x_signature, x_request_id)
+    ctx = audit_logger.AuditContext.from_request(request)
+    await audit_logger.log_audit(
+        audit_logger.AuditEvent.PAYMENT_WEBHOOK_RECEIVED, request,
+        {"topic": topic, "payment_id": payment_id},
+    )
+    await process_webhook(db, topic, payment_id, x_signature, x_request_id, audit_ctx=ctx)
 
     return Response(status_code=status.HTTP_200_OK)

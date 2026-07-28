@@ -29,6 +29,7 @@ from services.inventory import check_and_create_alert
 from services.orders_helpers import _decrement_stock_batch, _resolve_cart_item
 from services.shipping import calculate_shipping_cost
 from utils.money import decimalize_doc, quantize_money
+import audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ _ZONE_KEYS = {"central": "central_zone_enabled",
 async def create_order(
     db: AsyncIOMotorDatabase, user_id: str,
     order_data: OrderCreate, payment_method: PaymentMethod,
+    *, audit_ctx: audit_logger.AuditContext | None = None,
 ) -> Order:
     """Full flow: cart → resolve items → validate shipping → decrement stock
     ($gte guard + rollback) → insert order → clear cart → alerts → email."""
@@ -90,7 +92,7 @@ async def create_order(
         status=OrderStatus.PENDING, shipping_address=order_data.shipping_address,
         shipping_zone=zone, shipping_cost=shipping, payment_method=payment_method)
 
-    await _decrement_stock_batch(db, all_ops)
+    await _decrement_stock_batch(db, all_ops, audit_ctx=audit_ctx)
 
     seen: set[str] = set()
     for op in all_ops:
@@ -105,6 +107,11 @@ async def create_order(
 
     await db["carts"].update_one({"user_id": user_id}, {"$set": {"items": []}})
     logger.info("Order %s created for user %s.", result.inserted_id, user_id)
+    await audit_logger.log_audit_ctx(
+        audit_logger.AuditEvent.ORDER_CREATED,
+        ctx=audit_ctx,
+        details={"order_id": str(result.inserted_id), "user_id": user_id},
+    )
 
     # Email (best-effort)
     created = await db["orders"].find_one({"_id": result.inserted_id})
@@ -166,6 +173,7 @@ async def select_payment_method(
 async def update_order_status(
     db: AsyncIOMotorDatabase, order_id: str, new_status: OrderStatus,
     admin_user_id: str,
+    *, audit_ctx: audit_logger.AuditContext | None = None,
 ) -> Order:
     """Admin: update order status. Cancel/refund restores stock."""
     doc = await db["orders"].find_one({"_id": ObjectId(order_id)})
@@ -185,6 +193,16 @@ async def update_order_status(
                     {"$inc": {"stock": item["quantity"]}})
             except Exception:
                 logger.error("Skip stock restore: %s", item["product_id"])
+        await audit_logger.log_audit_ctx(
+            audit_logger.AuditEvent.ORDER_CANCELLED,
+            ctx=audit_ctx,
+            details={"order_id": order_id, "admin_id": admin_user_id},
+        )
+        await audit_logger.log_audit_ctx(
+            audit_logger.AuditEvent.STOCK_RESTORED,
+            ctx=audit_ctx,
+            details={"order_id": order_id, "items_restored": len(doc["items"])},
+        )
 
     await db["orders"].update_one(
         {"_id": ObjectId(order_id)},
@@ -193,4 +211,14 @@ async def update_order_status(
     updated = await db["orders"].find_one({"_id": ObjectId(order_id)})
     logger.info("Admin %s → order %s = '%s'.",
                 admin_user_id, order_id, new_status.value)
+    await audit_logger.log_audit_ctx(
+        audit_logger.AuditEvent.ORDER_STATUS_CHANGED,
+        ctx=audit_ctx,
+        details={
+            "order_id": order_id,
+            "from_status": cur,
+            "to_status": new_status.value,
+            "admin_id": admin_user_id,
+        },
+    )
     return Order(**updated)

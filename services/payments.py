@@ -27,6 +27,7 @@ from services.exceptions import (
     NotFoundError,
 )
 from utils.money import quantize_money
+import audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ def _get_sdk() -> mercadopago.SDK:
 
 async def create_mp_preference(
     db: AsyncIOMotorDatabase, user_id: str, order_id: str,
+    *, audit_ctx: audit_logger.AuditContext | None = None,
 ) -> dict:
     """Create a Mercado Pago preference, returning {preference_id, init_point}.
 
@@ -102,11 +104,21 @@ async def create_mp_preference(
             {"$set": {"payment_preference_id": pref["id"]}},
         )
         logger.info("Preference %s for order %s.", pref["id"], order_id)
+        await audit_logger.log_audit_ctx(
+            audit_logger.AuditEvent.MP_PREFERENCE_CREATED,
+            ctx=audit_ctx,
+            details={"order_id": order_id, "preference_id": pref["id"]},
+        )
         return {"preference_id": pref["id"], "init_point": pref["init_point"]}
     except (NotFoundError, ForbiddenError, InvalidStateTransitionError):
         raise
     except Exception as exc:
         logger.error("MP preference error: %s", exc, exc_info=True)
+        await audit_logger.log_audit_ctx(
+            audit_logger.AuditEvent.PAYMENT_FAILED,
+            ctx=audit_ctx,
+            details={"order_id": order_id, "error": str(exc)},
+        )
         raise RuntimeError(f"Error al comunicarse con Mercado Pago: {exc}") from exc
 
 
@@ -116,6 +128,8 @@ async def process_webhook(
     payment_id: Optional[str],
     x_signature: Optional[str],
     x_request_id: Optional[str],
+    *,
+    audit_ctx: audit_logger.AuditContext | None = None,
 ) -> None:
     """Process a Mercado Pago IPN webhook. Raises ForbiddenError on
     invalid/missing signature so the global handler returns a 403."""
@@ -183,6 +197,11 @@ async def process_webhook(
             logger.info("Order %s state '%s' — skip payment '%s'.", ref, cur, status)
 
     except ForbiddenError:
+        await audit_logger.log_audit_ctx(
+            audit_logger.AuditEvent.SIGNATURE_INVALID,
+            ctx=audit_ctx,
+            details={"payment_id": payment_id, "reason": "Invalid or missing webhook signature"},
+        )
         raise
     except Exception as exc:
         logger.error("Webhook error: %s", exc, exc_info=True)
