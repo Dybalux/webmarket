@@ -514,7 +514,15 @@ pip install -r requirements.txt
 
 4. **Configurar variables de entorno**
 
-Crear archivo `.env`:
+Crear archivo `.env` y restringir permisos:
+```bash
+make init-env
+# o manualmente:
+cp .env.example .env
+chmod 600 .env
+```
+
+Editar `.env` con tus valores:
 ```env
 SECRET_KEY=tu-secret-key-super-segura
 DATABASE_URL=mongodb://localhost:27017

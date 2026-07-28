@@ -20,23 +20,19 @@ services:
     stdin_open: true
     tty: true
   mongo_bebidas:
-    image: mongo:latest
+    image: mongo:7.0
     container_name: mongo
     restart: always
-    ports:
-      - "27017:27017"
     volumes:
       - ./data/mongo-data:/data/db
-    #Credenciales por defecto
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=miContraseñaSecreta
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
   redis_bebidas:
-    image: redis:latest
+    image: redis:7.2-alpine
     container_name: redis
     restart: always
-    ports:
-      - "6379:6379"
+    command: --requirepass ${REDIS_PASSWORD}
     volumes:
       - ./data/redis-data:/data
 networks:

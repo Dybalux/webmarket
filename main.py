@@ -62,44 +62,35 @@ app = FastAPI(
     title="EscabiAPI",
     description="API para gestionar productos, pedidos, carritos, autenticación y pagos de usuarios",
     version="0.0.1",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.ENV != "production" else None,
+    redoc_url="/redoc" if settings.ENV != "production" else None,
+    openapi_url="/openapi.json" if settings.ENV != "production" else None,
     lifespan=lifespan
 )
 
 #Middleware
 # --- CONFIGURACIÓN DE CORS ---
-# Lista de orígenes permitidos. En producción, deberías poner aquí el dominio de tu frontend.
-# Ejemplo: ["https://www.mitienda.com", "https://mitienda.com"]
+# Lista literal de orígenes permitidos — sin wildcard "*", sin branches condicionales.
 origins = [
-    "http://localhost:3000",  # Origen común para React en desarrollo
-    "http://localhost:5173",  # Vite default port (React/Vue)
-    "http://localhost:8080",  # Origen común para Vue en desarrollo
-    "http://localhost:4200",  # Origen común para Angular en desarrollo
-    # Vercel - deployment URLs
-    "https://escabi-frontend-3dtk1loe5-dybaluxs-projects.vercel.app",  # Current Vercel deployment
-    "https://escabi-frontend.vercel.app",  # Production Vercel (if you set up custom domain)
-    # Custom Domains
+    "http://localhost:3000",  # React dev
+    "http://localhost:5173",  # Vite dev
+    "http://localhost:8080",  # Vue dev
+    "http://localhost:4200",  # Angular dev
+    # Vercel deployments
+    "https://escabi-frontend-3dtk1loe5-dybaluxs-projects.vercel.app",
+    "https://escabi-frontend.vercel.app",
+    # Custom domains
     "https://altotrago.com",
     "https://www.altotrago.com",
-    settings.FRONTEND_URL, # Configurado desde variables de entorno
+    settings.FRONTEND_URL,
 ]
-
-# En producción, NUNCA usar "*"
-if settings.ENV.lower() == "development":
-    # En desarrollo, permitir todos los orígenes
-    origins.append("*")
-else:
-    # En producción, solo permitir orígenes específicos
-    # Agregar aquí cualquier dominio adicional de producción
-    pass
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True, # Permite cookies y encabezados de autorización
-    allow_methods=["*"],    # Permite todos los métodos (GET, POST, etc.)
-    allow_headers=["*"],    # Permite todos los encabezados
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 # --- MIDDLEWARE DE MODO MANTENIMIENTO ---
@@ -162,6 +153,35 @@ class MaintenanceModeMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(MaintenanceModeMiddleware)
+
+# --- SECURITY HEADERS MIDDLEWARE (ADR-1) ---
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Adds standard HTTP security headers to every response."""
+
+    HEADERS = {
+        "X-Frame-Options": "DENY",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    }
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers.update(self.HEADERS)
+        if settings.ENV == "production":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# --- HTTPS REDIRECT MIDDLEWARE (ADR-2, production only) ---
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware as _HTTPSRedirectMiddleware
+
+if settings.ENV == "production":
+    app.add_middleware(_HTTPSRedirectMiddleware)
 
 # --- RFC 9457 global exception handlers ---
 # Registration order matters: ServiceError first, then HTTPException,
@@ -266,12 +286,15 @@ if __name__ == "__main__":
     import os
     logger.info(f"🌍 Ambiente: {settings.ENV}")
 
-    #Railway provee la variable PORT
+    # Railway provee la variable PORT
     port = int(os.environ.get("PORT", 8000))
     logger.info(f"🚀 Iniciando servidor en puerto {port}")
 
-    # En desarollo con recarga asutomática, en producción sin recarga
-    if(settings.ENV.lower() == "development"):
-        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
-    else:
-        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+    host = "127.0.0.1" if settings.ENV == "production" else "0.0.0.0"
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        reload=False,
+        proxy_headers=True,
+    )

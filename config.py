@@ -41,8 +41,13 @@ class Settings(BaseSettings):
     LOGIN_MAX_FAILURES: int = 5
     LOGIN_LOCKOUT_SECONDS: int = 900
 
-    # Entorno
-    ENV: str = "development"
+    # Entorno (required — no default; fail-fast if unset)
+    ENV: str
+
+    # Docker Compose service credentials (Optional for backward compat with external services)
+    MONGO_INITDB_ROOT_USERNAME: Optional[str] = None
+    MONGO_INITDB_ROOT_PASSWORD: Optional[str] = None
+    REDIS_PASSWORD: Optional[str] = None
 
     @field_validator("ENV")
     def validate_env(cls, v):

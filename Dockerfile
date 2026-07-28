@@ -24,4 +24,9 @@ RUN pip install --upgrade pip setuptools wheel && \
 
 COPY . /app/
 
+# Run as non-root user (F-012)
+RUN adduser -D -g '' appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
 CMD ["python3", "main.py"]
