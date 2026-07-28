@@ -91,7 +91,7 @@ VALID_PAYLOADS: dict[str, tuple[type, dict]] = {
     ),
     "BulkPriceUpdate": (
         BulkPriceUpdate,
-        {"percentage": 0.10, "target": "all", "based_on": "price"},
+        {"percentage": "0.10", "target": "all", "based_on": "price"},
     ),
     "ProductUpdate": (
         ProductUpdate,
@@ -101,7 +101,7 @@ VALID_PAYLOADS: dict[str, tuple[type, dict]] = {
         ComboCreate,
         {
             "name": "Test Combo",
-            "price": 100.0,
+            "price": "100.00",
             "items": [{"product_id": "abc", "quantity": 1}],
         },
     ),
@@ -124,7 +124,7 @@ VALID_PAYLOADS: dict[str, tuple[type, dict]] = {
         DynamicPricingUpdate,
         {
             "enabled": True,
-            "multiplier": 1.1,
+            "multiplier": "1.10",
             "start_day": 5,
             "end_day": 7,
             "start_hour": 20,
@@ -176,7 +176,7 @@ class TestAdminProductNotStrict:
         doc = {
             "_id": "507f1f77bcf86cd799439011",
             "name": "Test Product",
-            "price": 100.0,
+            "price": "100.00",
             "category": "Cerveza",
             "stock": 10,
             "active": True,
@@ -191,7 +191,7 @@ class TestAdminProductNotStrict:
         doc = {
             "_id": "507f1f77bcf86cd799439011",
             "name": "Test Product",
-            "price": 100.0,
+            "price": "100.00",
             "category": "Cerveza",
             "stock": 10,
             "active": True,

@@ -26,6 +26,7 @@ from services.exceptions import (
     InvalidStateTransitionError,
     NotFoundError,
 )
+from utils.money import quantize_money
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,10 @@ async def create_mp_preference(
 
     items_mp = [
         {"title": it["name"], "quantity": it["quantity"],
-         "unit_price": it["price_at_purchase"], "currency_id": "ARS"}
+         # ADR-5: MercadoPago SDK expects float; quantize to 2 dp first so
+         # the cast is lossless (e.g. Decimal("19.99") → 19.99).
+         "unit_price": float(quantize_money(it["price_at_purchase"])),
+         "currency_id": "ARS"}
         for it in doc["items"]
     ]
     front = settings.FRONTEND_URL

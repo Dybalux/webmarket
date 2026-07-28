@@ -66,6 +66,47 @@ API REST completa para e-commerce de bebidas con autenticación JWT, verificaci�
 
 ---
 
+## 🔢 Precisión Monetaria
+
+Todos los campos monetarios (`price`, `net_price`, `total_amount`, `shipping_cost`, etc.) utilizan `Decimal` con exactamente 2 decimales, almacenados como `bson.Decimal128` en MongoDB. Esto elimina errores de redondeo IEEE 754 que afectan la aritmética financiera.
+
+### Formato en la API
+
+- **Respuestas JSON**: los valores monetarios se serializan como strings (ej: `"1234.56"`)
+- **Entradas**: se aceptan strings (`"1200.00"`) y enteros (`1200`), pero **no floats** (`1200.00` será rechazado)
+
+### Ejemplo de respuesta
+
+```json
+{
+  "total_amount": "1999.00",
+  "shipping_cost": "1000.00",
+  "items": [
+    {
+      "price_at_purchase": "19.99",
+      "name": "Quilmes 1L"
+    }
+  ]
+}
+```
+
+### Migración de datos existentes
+
+Para migrar documentos existentes con valores float a Decimal128:
+
+```bash
+# Ver qué cambiaría (dry-run)
+python scripts/migrate_floats_to_decimal128.py --dry-run
+
+# Ejecutar la migración
+python scripts/migrate_floats_to_decimal128.py
+
+# Revertir si es necesario (Decimal128 → float)
+python scripts/migrate_floats_to_decimal128.py --downgrade
+```
+
+---
+
 ## 🛠️ Tecnologías Utilizadas
 
 ### Backend
@@ -272,7 +313,7 @@ curl -X POST "https://web-production-62840.up.railway.app/products/" \
   -d '{
     "name": "Cerveza Corona 355ml",
     "description": "Cerveza mexicana importada",
-    "price": 1200.00,
+    "price": "1200.00",
     "category": "Cerveza",
     "stock": 50,
     "abv": 4.5,
@@ -428,7 +469,7 @@ erDiagram
         string id
         string user_id
         string status "Pendiente..Reembolsado"
-        float total_amount
+        decimal total_amount
         string payment_method
         string shipping_zone
     }
@@ -436,10 +477,10 @@ erDiagram
     Product {
         string id
         string name
-        float price
+        decimal price
         int stock
         string category
-        float net_price
+        decimal net_price
         bool active
     }
 

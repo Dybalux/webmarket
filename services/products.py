@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
+from decimal import Decimal
 from typing import Optional
 
 from bson import ObjectId
@@ -28,6 +29,7 @@ from services.exceptions import (
     NotFoundError,
 )
 from services.pricing import get_adjusted_price
+from utils.money import decimalize_doc, from_decimal128, quantize_money
 from utils.sanitize import escape_regex
 
 logger = logging.getLogger(__name__)
@@ -61,7 +63,7 @@ async def create_product(
         exclude={"id"},
         by_alias=True,
     )
-    result = await products.insert_one(product_dict)
+    result = await products.insert_one(decimalize_doc(product_dict))
 
     if not result.inserted_id:
         raise InternalError("No se pudo crear el producto.")
@@ -79,8 +81,8 @@ async def list_products(
     limit: int,
     *,
     category: Optional[ProductCategory] = None,
-    min_price: Optional[float] = None,
-    max_price: Optional[float] = None,
+    min_price: Optional[Decimal] = None,
+    max_price: Optional[Decimal] = None,
     search: Optional[str] = None,
     include_out_of_stock: bool = False,
     page: int = 1,
@@ -185,12 +187,15 @@ async def update_product(
         if net_price is None:
             net_price = current.get("net_price")
         if net_price is not None:
-            calculated = round(net_price * (1 + profit_pct / 100), 2)
+            net_price_dec = from_decimal128(net_price)
+            calculated = quantize_money(
+                net_price_dec * (1 + Decimal(str(profit_pct)) / 100)
+            )
             data["price"] = calculated
             logger.info(
                 "Precio calculado automáticamente: %s (Neto: %s, Ganancia: %.1f%%)",
                 calculated,
-                net_price,
+                net_price_dec,
                 profit_pct,
             )
         else:
@@ -208,7 +213,7 @@ async def update_product(
 
     await products.update_one(
         {"_id": ObjectId(product_id)},
-        {"$set": data},
+        {"$set": decimalize_doc(data)},
     )
 
     updated = await products.find_one({"_id": ObjectId(product_id)})

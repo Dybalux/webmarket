@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from typing import Optional
+from decimal import Decimal
 from bson import ObjectId
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -39,8 +40,8 @@ async def create_product(
 async def read_products(
     db: AsyncIOMotorDatabase = Depends(get_database),
     category: Optional[ProductCategory] = Query(None, description="Filtrar por categoría de producto"),
-    min_price: Optional[float] = Query(None, ge=0, description="Precio mínimo del producto"),
-    max_price: Optional[float] = Query(None, ge=0, description="Precio máximo del producto"),
+    min_price: Optional[Decimal] = Query(None, ge=0, description="Precio mínimo del producto"),
+    max_price: Optional[Decimal] = Query(None, ge=0, description="Precio máximo del producto"),
     search: Optional[str] = Query(None, min_length=2, description="Buscar por nombre o descripción del producto"),
     include_out_of_stock: bool = Query(False, description="Incluir productos sin stock (para administradores)"),
     page: int = Query(1, ge=1, description="Número de página (1-indexed)"),

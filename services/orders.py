@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import List
 
 from bson import ObjectId
@@ -27,6 +28,7 @@ from services.exceptions import (
 from services.inventory import check_and_create_alert
 from services.orders_helpers import _decrement_stock_batch, _resolve_cart_item
 from services.shipping import calculate_shipping_cost
+from utils.money import decimalize_doc, quantize_money
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +72,7 @@ async def create_order(
             f"Por favor, selecciona otra opción de envío.")
 
     # 3. Resolve items
-    ois, all_ops, total = [], [], 0.0
+    ois, all_ops, total = [], [], Decimal("0.00")
     for ci in cart.items:
         oi, ops = await _resolve_cart_item(db, ci)
         ois.append(oi); all_ops.extend(ops)
@@ -82,8 +84,9 @@ async def create_order(
     shipping = await calculate_shipping_cost(db, zone, n_items, has_c)
 
     # 5. Build + insert order
+    order_total = quantize_money(total + shipping)
     new_order = Order(
-        user_id=user_id, items=ois, total_amount=total + shipping,
+        user_id=user_id, items=ois, total_amount=order_total,
         status=OrderStatus.PENDING, shipping_address=order_data.shipping_address,
         shipping_zone=zone, shipping_cost=shipping, payment_method=payment_method)
 
@@ -96,7 +99,7 @@ async def create_order(
             seen.add(pid); await check_and_create_alert(db, pid)
 
     odict = new_order.model_dump(exclude={"_id"}, by_alias=False)
-    result = await db["orders"].insert_one(odict)
+    result = await db["orders"].insert_one(decimalize_doc(odict))
     if not result.inserted_id:
         raise InternalError("No se pudo crear el pedido.")
 
@@ -109,7 +112,7 @@ async def create_order(
         u = await db["users"].find_one({"_id": ObjectId(user_id)})
         email = u.get("email", "email-no-disponible") if u else "email-no-disponible"
         await send_new_order_notification(
-            str(result.inserted_id), email, total + shipping, payment_method.value)
+            str(result.inserted_id), email, order_total, payment_method.value)
     except Exception as exc:
         logger.error("Email notify failed: %s", exc)
 

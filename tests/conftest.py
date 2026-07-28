@@ -46,7 +46,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
-from bson import ObjectId
+from bson import ObjectId, Decimal128
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from mongomock_motor import AsyncMongoMockClient
@@ -123,7 +123,7 @@ SAMPLE_PRODUCTS: list[dict] = [
         "_id": ObjectId("507f1f77bcf86cd799439011"),
         "name": "Quilmes 1L",
         "description": "Cerveza Quilmes 1 litro",
-        "price": 1500.0,
+        "price": Decimal128("1500.00"),
         "category": ProductCategory.BEER.value,
         "stock": 20,
         "image_url": "https://example.com/quilmes.jpg",
@@ -136,7 +136,7 @@ SAMPLE_PRODUCTS: list[dict] = [
         "_id": ObjectId("507f1f77bcf86cd799439012"),
         "name": "Stella Artois 1L",
         "description": "Cerveza Stella Artois 1L",
-        "price": 2200.0,
+        "price": Decimal128("2200.00"),
         "category": ProductCategory.BEER.value,
         "stock": 5,
         "image_url": "https://example.com/stella.jpg",
@@ -149,7 +149,7 @@ SAMPLE_PRODUCTS: list[dict] = [
         "_id": ObjectId("507f1f77bcf86cd799439013"),
         "name": "Fernet Branca 750ml",
         "description": "Fernet Branca 750ml",
-        "price": 8500.0,
+        "price": Decimal128("8500.00"),
         "category": ProductCategory.SPIRITS_FERNET.value,
         "stock": 0,  # out of stock — used by filter tests
         "image_url": "https://example.com/fernet.jpg",
@@ -162,7 +162,7 @@ SAMPLE_PRODUCTS: list[dict] = [
         "_id": ObjectId("507f1f77bcf86cd799439014"),
         "name": "Vino Malbec 750ml",
         "description": "Vino tinto Malbec",
-        "price": 4200.0,
+        "price": Decimal128("4200.00"),
         "category": ProductCategory.WINE_RED.value,
         "stock": 12,
         "image_url": "https://example.com/malbec.jpg",

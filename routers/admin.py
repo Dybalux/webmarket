@@ -2,11 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List, Optional
 from bson import ObjectId
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 
 from models import Order, UserResponse, OrderStatus, UserRole, TokenData, ShippingSettings, BulkPriceUpdate, SystemSettings
 from database import get_database, get_collection
 from security import get_current_admin_user
 from utils.sanitize import escape_regex
+from utils.money import from_decimal128, quantize_money, decimalize_doc
 import logging
 
 logger = logging.getLogger(__name__)
@@ -65,8 +67,9 @@ async def get_admin_stats(
             {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
         ]
         total_revenue_result = await orders_collection.aggregate(pipeline_total_revenue).to_list(1)
-        total_revenue = total_revenue_result[0]["total"] if total_revenue_result else 0.0
-        
+        total_revenue_raw = total_revenue_result[0]["total"] if total_revenue_result else 0
+        total_revenue = quantize_money(from_decimal128(total_revenue_raw))
+
         # Ingresos del último mes
         last_month = datetime.now(tz=timezone.utc) - timedelta(days=30)
         pipeline_monthly_revenue = [
@@ -79,7 +82,8 @@ async def get_admin_stats(
             {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
         ]
         monthly_revenue_result = await orders_collection.aggregate(pipeline_monthly_revenue).to_list(1)
-        monthly_revenue = monthly_revenue_result[0]["total"] if monthly_revenue_result else 0.0
+        monthly_revenue_raw = monthly_revenue_result[0]["total"] if monthly_revenue_result else 0
+        monthly_revenue = quantize_money(from_decimal128(monthly_revenue_raw))
         
         # Productos con bajo stock (< 10 unidades)
         low_stock_products = await products_collection.count_documents({"stock": {"$lt": 10}})
@@ -107,8 +111,8 @@ async def get_admin_stats(
                 "cancelled": cancelled_orders
             },
             "revenue": {
-                "total": round(total_revenue, 2),
-                "last_30_days": round(monthly_revenue, 2)
+                "total": total_revenue,
+                "last_30_days": monthly_revenue
             }
         }
     except Exception as e:
@@ -369,16 +373,16 @@ async def get_shipping_settings(
             default_settings = {
                 # Zona Central
                 "central_zone_enabled": True,
-                "central_zone_price": 0.0,  # GRATIS para zona céntrica
+                "central_zone_price": Decimal("0.00"),  # GRATIS para zona céntrica
                 "central_zone_description": "🎁 ENVÍO GRATIS - Zona Céntrica de Santa María (centro y barrios aledaños)",
                 # Zona Remota
                 "remote_zone_enabled": True,
-                "remote_zone_price": 1000.0,
+                "remote_zone_price": Decimal("1000.00"),
                 "remote_zone_description": "🚛 Envío a Zonas Alejadas - Barrios periféricos y localidades cercanas",
                 # Retiro en Persona
                 "pickup_enabled": True,
                 "pickup_address": "Configurar dirección en panel de administración",
-                "pickup_price": 0.0,
+                "pickup_price": Decimal("0.00"),
                 "pickup_description": "🏪 Retiro en Persona - GRATIS en nuestro local",
                 "updated_at": datetime.now(tz=timezone.utc)
             }
@@ -400,11 +404,11 @@ async def get_shipping_settings(
 async def update_shipping_settings(
     # Zona Central
     central_zone_enabled: bool = Query(True, description="Habilitar envío a zona céntrica"),
-    central_zone_price: float = Query(..., ge=0, description="Precio de envío zona céntrica"),
+    central_zone_price: Decimal = Query(..., ge=0, description="Precio de envío zona céntrica"),
     central_zone_description: str = Query(..., min_length=1, description="Descripción del envío a zona central"),
     # Zona Remota
     remote_zone_enabled: bool = Query(True, description="Habilitar envío a zonas alejadas"),
-    remote_zone_price: float = Query(..., gt=0, description="Precio de envío zonas lejanas"),
+    remote_zone_price: Decimal = Query(..., gt=0, description="Precio de envío zonas lejanas"),
     remote_zone_description: str = Query(..., min_length=1, description="Descripción del envío a zona remota"),
     # Retiro en Persona
     pickup_enabled: bool = Query(True, description="Habilitar retiro en persona"),
@@ -432,7 +436,7 @@ async def update_shipping_settings(
             # Retiro en Persona
             "pickup_enabled": pickup_enabled,
             "pickup_address": pickup_address,
-            "pickup_price": 0.0,  # Siempre gratis
+            "pickup_price": Decimal("0.00"),  # Siempre gratis
             "pickup_description": pickup_description,
             # Metadata
             "updated_at": datetime.now(tz=timezone.utc),
@@ -472,7 +476,7 @@ async def update_shipping_settings(
             "remote_zone_description": remote_zone_description,
             "pickup_enabled": pickup_enabled,
             "pickup_address": pickup_address,
-            "pickup_price": 0.0,
+            "pickup_price": Decimal("0.00"),
             "pickup_description": pickup_description
         }
     
@@ -510,23 +514,24 @@ async def bulk_price_update(
         updated_count = 0
         
         async for product_doc in cursor:
-            base_value = 0.0
+            base_value = Decimal("0.00")
             
             if update_data.based_on == "net_price":
-                base_value = product_doc.get("net_price")
-                if base_value is None:
+                base_value_raw = product_doc.get("net_price")
+                if base_value_raw is None:
                     # Si no tiene precio neto, no podemos actualizar basándonos en él
                     continue
+                base_value = from_decimal128(base_value_raw)
             else:
-                base_value = product_doc.get("price", 0.0)
+                base_value = from_decimal128(product_doc.get("price", Decimal("0.00")))
             
             # Calcular nuevo precio: base * (1 + porcentaje)
-            new_price = round(base_value * (1 + update_data.percentage), 2)
+            new_price = quantize_money(base_value * (Decimal("1") + update_data.percentage))
             
             # Actualizar en DB
             await products_collection.update_one(
                 {"_id": product_doc["_id"]},
-                {"$set": {"price": new_price, "updated_at": datetime.now(tz=timezone.utc)}}
+                {"$set": decimalize_doc({"price": new_price, "updated_at": datetime.now(tz=timezone.utc)})}
             )
             updated_count += 1
             

@@ -12,6 +12,7 @@ network. Marked @pytest.mark.unit so they run in the fast tier.
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 import pytest
 from bson import ObjectId
@@ -37,7 +38,7 @@ class TestProductStockValidation:
         with pytest.raises(ValidationError) as exc_info:
             Product(
                 name="Quilmes 1L",
-                price=1500.0,
+                price="1500.00",
                 category=ProductCategory.BEER,
                 stock=-1,
             )
@@ -53,7 +54,7 @@ class TestProductStockValidation:
         """Zero is a valid stock value — represents sold-out but known SKU."""
         product = Product(
             name="Quilmes 1L",
-            price=1500.0,
+            price="1500.00",
             category=ProductCategory.BEER,
             stock=0,
         )
@@ -63,7 +64,7 @@ class TestProductStockValidation:
     def test_positive_stock_round_trips(self):
         product = Product(
             name="Quilmes 1L",
-            price=1500.0,
+            price="1500.00",
             category=ProductCategory.BEER,
             stock=42,
         )
@@ -76,7 +77,7 @@ class TestProductStockValidation:
         product = Product(
             _id=oid,
             name="Quilmes 1L",
-            price=1500.0,
+            price="1500.00",
             category=ProductCategory.BEER,
             stock=0,
         )
@@ -157,7 +158,7 @@ class TestOrderItemQuantityValidation:
                 product_id=ObjectId("507f1f77bcf86cd799439011"),
                 name="Quilmes 1L",
                 quantity=0,
-                price_at_purchase=1500.0,
+                price_at_purchase="1500.00",
             )
         errors = exc_info.value.errors()
         assert any(err["loc"] == ("quantity",) for err in errors)
@@ -168,7 +169,7 @@ class TestOrderItemQuantityValidation:
             product_id=ObjectId("507f1f77bcf86cd799439011"),
             name="Quilmes 1L",
             quantity=2,
-            price_at_purchase=1500.0,
+            price_at_purchase="1500.00",
         )
         assert item.quantity == 2
-        assert item.price_at_purchase == 1500.0
+        assert item.price_at_purchase == Decimal("1500.00")

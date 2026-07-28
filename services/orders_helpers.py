@@ -12,6 +12,7 @@ These functions are NOT part of the public API — they exist solely to keep
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import List
 
 from bson import ObjectId
@@ -25,6 +26,7 @@ from services.exceptions import (
     NotFoundError,
 )
 from services.pricing import get_adjusted_price
+from utils.money import from_decimal128
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +95,7 @@ async def _resolve_cart_item(
                 f"Stock insuficiente para '{product['name']}'. "
                 f"Disponible: {stock}, Solicitado: {item.quantity}."
             )
-        price = await get_adjusted_price(db, product["price"])
+        price = await get_adjusted_price(db, from_decimal128(product["price"]))
         oi = OrderItem(
             product_id=product["_id"],
             name=product["name"],
@@ -146,7 +148,7 @@ async def _resolve_cart_item(
             }
         )
 
-    price = await get_adjusted_price(db, combo["price"])
+    price = await get_adjusted_price(db, from_decimal128(combo["price"]))
     oi = OrderItem(
         product_id=ObjectId(item.product_id),
         name=f"{combo['name']} (Combo)",

@@ -1,7 +1,7 @@
 """Pricing business logic — dynamic pricing and settings management.
 
 Public API (see design §2.2):
-  - get_adjusted_price(db, base_price) -> float
+  - get_adjusted_price(db, base_price) -> Decimal
   - is_dynamic_pricing_active(db, current_time=None) -> bool
   - get_pricing_settings(db) -> dict
   - update_pricing_settings(db, settings, admin_user_id) -> dict
@@ -16,10 +16,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+from decimal import Decimal
+
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from models import DynamicPricingSettings
 from services.exceptions import NotFoundError, ValidationError
+from utils.money import decimalize_doc, quantize_money
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +34,8 @@ logger = logging.getLogger(__name__)
 
 async def get_adjusted_price(
     db: AsyncIOMotorDatabase,
-    base_price: float,
-) -> float:
+    base_price: Decimal,
+) -> Decimal:
     """Apply dynamic pricing multiplier if active. Returns the adjusted price.
 
     Loads the active pricing settings document from the database and
@@ -48,7 +51,7 @@ async def get_adjusted_price(
 
     if _is_active(settings):
         adjusted_price = base_price * settings.multiplier
-        return round(adjusted_price, 2)
+        return quantize_money(adjusted_price)
 
     return base_price
 
@@ -116,7 +119,7 @@ async def update_pricing_settings(
     if existing:
         await db["pricing_settings"].update_one(
             {"_id": existing["_id"]},
-            {"$set": update_data},
+            {"$set": decimalize_doc(update_data)},
         )
         updated = await db["pricing_settings"].find_one({"_id": existing["_id"]})
         logger.info(
@@ -127,7 +130,7 @@ async def update_pricing_settings(
     else:
         new_settings = DynamicPricingSettings(**update_data)
         result = await db["pricing_settings"].insert_one(
-            new_settings.model_dump(exclude={"id"}, by_alias=False)
+            decimalize_doc(new_settings.model_dump(exclude={"id"}, by_alias=False))
         )
         created = await db["pricing_settings"].find_one({"_id": result.inserted_id})
         logger.info(

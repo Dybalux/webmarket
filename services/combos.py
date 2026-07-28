@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Set
 
 from bson import ObjectId
@@ -24,6 +25,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from models import Combo, ComboCreate, ComboDetailed, ComboItemDetailed, ComboUpdate
 from services.exceptions import InternalError, NotFoundError, ValidationError
 from services.pricing import get_adjusted_price
+from utils.money import decimalize_doc, from_decimal128, quantize_money
 
 logger = logging.getLogger(__name__)
 
@@ -109,14 +111,14 @@ async def _enrich_combos(
 
         # Savings = sum(component unit price × combo quantity) − combo price
         total_items_cost = sum(
-            ei.price * ei.quantity for ei in enriched_items
+            from_decimal128(ei.price) * ei.quantity for ei in enriched_items
         )
 
-        combo_price = combo_doc["price"]
+        combo_price = from_decimal128(combo_doc["price"])
         if apply_dynamic_pricing:
             combo_price = await get_adjusted_price(db, combo_price)
 
-        savings = round(total_items_cost - combo_price, 2)
+        savings = quantize_money(total_items_cost - combo_price)
 
         enriched.append(
             ComboDetailed(
@@ -129,7 +131,7 @@ async def _enrich_combos(
                 active=combo_doc.get("active", True),
                 created_at=combo_doc.get("created_at"),
                 updated_at=combo_doc.get("updated_at"),
-                total_items_cost=round(total_items_cost, 2),
+                total_items_cost=quantize_money(total_items_cost),
                 savings=savings,
             )
         )
@@ -179,7 +181,7 @@ async def get_combo_by_id(
         raise NotFoundError("Combo no encontrado.")
 
     combo = Combo(**combo_doc)
-    combo.price = await get_adjusted_price(db, combo.price)
+    combo.price = await get_adjusted_price(db, from_decimal128(combo.price))
     return combo
 
 
@@ -238,7 +240,7 @@ async def create_combo(
     new_combo = Combo(**combo_data.model_dump())
     combo_dict = new_combo.model_dump(exclude={"_id"}, by_alias=False)
 
-    result = await db["combos"].insert_one(combo_dict)
+    result = await db["combos"].insert_one(decimalize_doc(combo_dict))
     if not result.inserted_id:
         raise InternalError("No se pudo crear el combo.")
 
@@ -291,7 +293,7 @@ async def update_combo(
 
     await db["combos"].update_one(
         {"_id": ObjectId(combo_id)},
-        {"$set": update_dict},
+        {"$set": decimalize_doc(update_dict)},
     )
 
     updated = await db["combos"].find_one({"_id": ObjectId(combo_id)})

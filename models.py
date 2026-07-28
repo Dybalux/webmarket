@@ -7,6 +7,9 @@ from pydantic.json_schema import JsonSchemaValue
 import enum
 import re
 
+from utils.money import Money
+from decimal import Decimal
+
 class PyObjectId(ObjectId):
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type, handler):
@@ -96,14 +99,14 @@ class Product(BaseModel):
     id: Optional[PyObjectId] = Field(default=None, alias="_id", serialization_alias="id",exclude=False)
     name: str = Field(..., min_length=3, max_length=100, description="Nombre de la bebida")
     description: Optional[str] = Field(None, max_length=500, description="Descripción detallada del producto")
-    price: float = Field(..., gt=0, description="Precio de venta (mayor que cero)")
+    price: Money = Field(..., gt=0, description="Precio de venta (mayor que cero)")
     category: ProductCategory = Field(..., description="Categoría de la bebida")
     stock: int = Field(..., ge=0, description="Cantidad disponible en inventario (mayor o igual a cero)")
     image_url: Optional[str] = Field(None, description="URL de la imagen principal del producto")
-    abv: Optional[float] = Field(None, ge=0, le=100, description="Grado alcohólico por volumen (Alcohol by Volume), 0-100%")
+    abv: Optional[float] = Field(None, ge=0, le=100, description="Grado alcohólico por volumen (Alcohol by Volume), 0-100%")  # Not money — stays float
     volume_ml: Optional[int] = Field(None, gt=0, description="Volumen del envase en mililitros")
     origin: Optional[str] = Field(None, max_length=50, description="País o región de origen")
-    net_price: Optional[float] = Field(None, ge=0, description="Precio de costo o neto del producto", exclude=True)
+    net_price: Optional[Money] = Field(None, ge=0, description="Precio de costo o neto del producto", exclude=True)
     active: bool = Field(default=True, description="Indica si el producto está habilitado para venta")
     
     model_config = ConfigDict(
@@ -114,22 +117,22 @@ class Product(BaseModel):
 
 class AdminProduct(Product):
     """Versión extendida del producto para administradores que incluye el precio neto"""
-    net_price: Optional[float] = Field(None, ge=0, description="Precio de costo o neto (Visible solo para admin)", exclude=False)
+    net_price: Optional[Money] = Field(None, ge=0, description="Precio de costo o neto (Visible solo para admin)", exclude=False)
 
 class ProductUpdate(BaseRequestModel):
     """Modelo para actualizar un producto, permite campos opcionales y cálculo por ganancia"""
     name: Optional[str] = Field(None, min_length=3, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
-    price: Optional[float] = Field(None, gt=0)
+    price: Optional[Money] = Field(None, gt=0)
     category: Optional[ProductCategory] = None
     stock: Optional[int] = Field(None, ge=0)
     image_url: Optional[str] = None
-    abv: Optional[float] = Field(None, ge=0, le=100)
+    abv: Optional[float] = Field(None, ge=0, le=100)  # Not money — stays float
     volume_ml: Optional[int] = Field(None, gt=0)
     origin: Optional[str] = Field(None, max_length=50)
-    net_price: Optional[float] = Field(None, ge=0)
+    net_price: Optional[Money] = Field(None, ge=0)
     active: Optional[bool] = None
-    profit_percentage: Optional[float] = Field(None, description="Porcentaje de ganancia para calcular el precio automáticamente")
+    profit_percentage: Optional[float] = Field(None, description="Porcentaje de ganancia para calcular el precio automáticamente")  # Not money — stays float
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -299,7 +302,7 @@ class CartItemDetailed(BaseModel):
     quantity: int = Field(..., description="Cantidad en el carrito")
     item_type: str = Field(..., description="Tipo de item: 'product' o 'combo'")
     name: str = Field(..., description="Nombre del producto o combo")
-    price: float = Field(..., description="Precio unitario")
+    price: Money = Field(..., description="Precio unitario")
     image_url: Optional[str] = Field(None, description="URL de la imagen")
     stock: Optional[int] = Field(None, description="Stock disponible (solo para productos)")
     combo_items: Optional[List[dict]] = Field(None, description="Items del combo (solo para combos)")
@@ -322,7 +325,7 @@ class OrderItem(BaseModel):
     product_id: PyObjectId  = Field(..., description="ID del producto")
     name: str = Field(..., description="Nombre del producto al momento de la compra")
     quantity: int = Field(..., gt=0, description="Cantidad del producto")
-    price_at_purchase: float = Field(..., gt=0, description="Precio unitario del producto al momento de la compra")
+    price_at_purchase: Money = Field(..., gt=0, description="Precio unitario del producto al momento de la compra")
     model_config = ConfigDict(
         populate_by_name=True,
         json_encoders={ObjectId: str},
@@ -346,11 +349,11 @@ class Order(BaseModel):
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
     user_id: str
     items: List[OrderItem]
-    total_amount: float = Field(..., ge=0)
+    total_amount: Money = Field(..., ge=0)
     status: OrderStatus = OrderStatus.PENDING
     shipping_address: Address
     shipping_zone: Optional[str] = Field(default="central", description="Zona de envío: 'central', 'remote' o 'pickup'")
-    shipping_cost: float = Field(default=0.0, description="Costo de envío según zona")
+    shipping_cost: Money = Field(default=Decimal("0.00"), description="Costo de envío según zona")
     payment_method: Optional[PaymentMethod] = None  # Método de pago seleccionado
     payment_id: Optional[str] = None # ID de la transacción de pago
     payment_preference_id: Optional[str] = None # ID de la preferencia de Mercado Pago
@@ -365,7 +368,7 @@ class Order(BaseModel):
 class PaymentRequest(BaseModel):
     order_id: str = Field(..., description="ID del pedido a pagar")
     payment_method: str = Field(..., description="Método de pago (ej. 'MercadoPago', 'Tarjeta de Crédito')")
-    amount: float = Field(..., gt=0, description="Monto a pagar")
+    amount: Money = Field(..., gt=0, description="Monto a pagar")
     # Podrías añadir más detalles específicos de la tarjeta aquí o dejar que la pasarela los maneje
 
 # https://medium.com/@navneetskahlon/fastapi-and-pydantic-modern-data-validation-in-python-5fa0152f3588
@@ -373,7 +376,7 @@ class PaymentResponseModel(BaseModel): # Renombrado para evitar conflicto con Pa
     id: Optional[str] = Field(None, alias="_id")
     order_id: str
     user_id: str
-    amount: float
+    amount: Money
     currency: str = "ARS" # O la moneda predeterminada
     status: PaymentStatus = PaymentStatus.PENDING
     transaction_details: Optional[dict] = None # Detalles devueltos por la pasarela de pago
@@ -431,18 +434,18 @@ class ShippingSettings(BaseModel):
     
     # Zona Central
     central_zone_enabled: bool = Field(default=True, description="Habilitar/deshabilitar envío a zona céntrica")
-    central_zone_price: float = Field(default=0.0, description="Precio de envío zona céntrica (GRATIS)")
+    central_zone_price: Money = Field(default=Decimal("0.00"), description="Precio de envío zona céntrica (GRATIS)")
     central_zone_description: str = Field(default="🎁 ENVÍO GRATIS - Zona Céntrica de Santa María", description="Descripción del envío a zona central")
     
     # Zona Remota
     remote_zone_enabled: bool = Field(default=True, description="Habilitar/deshabilitar envío a zonas alejadas")
-    remote_zone_price: float = Field(default=1000.0, description="Precio de envío zonas lejanas")
+    remote_zone_price: Money = Field(default=Decimal("1000.00"), description="Precio de envío zonas lejanas")
     remote_zone_description: str = Field(default="🚛 Envío a Zonas Alejadas", description="Descripción del envío a zona remota")
     
     # Retiro en Persona
     pickup_enabled: bool = Field(default=True, description="Habilitar/deshabilitar retiro en persona")
     pickup_address: str = Field(default="", description="Dirección para retiro en persona")
-    pickup_price: float = Field(default=0.0, description="Precio de retiro en persona (gratis)")
+    pickup_price: Money = Field(default=Decimal("0.00"), description="Precio de retiro en persona (gratis)")
     pickup_description: str = Field(default="🏪 Retiro en Persona - GRATIS", description="Descripción de la opción de retiro")
     
     # Metadata
@@ -466,7 +469,7 @@ class Combo(BaseModel):
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
     name: str = Field(..., min_length=3, max_length=100, description="Nombre del combo")
     description: Optional[str] = Field(None, max_length=500, description="Descripción del combo")
-    price: float = Field(..., gt=0, description="Precio especial del combo")
+    price: Money = Field(..., gt=0, description="Precio especial del combo")
     image_url: Optional[str] = Field(None, description="URL de la imagen del combo (CDN)")
     items: List[ComboItem] = Field(..., min_length=1, description="Productos que componen el combo")
     active: bool = Field(default=True, description="Si el combo está activo o no")
@@ -483,7 +486,7 @@ class ComboCreate(BaseRequestModel):
     """Modelo para crear un combo"""
     name: str = Field(..., min_length=3, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
-    price: float = Field(..., gt=0)
+    price: Money = Field(..., gt=0)
     image_url: Optional[str] = None
     items: List[ComboItem] = Field(..., min_length=1)
     active: bool = True
@@ -492,7 +495,7 @@ class ComboUpdate(BaseRequestModel):
     """Modelo para actualizar un combo"""
     name: Optional[str] = Field(None, min_length=3, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
-    price: Optional[float] = Field(None, gt=0)
+    price: Optional[Money] = Field(None, gt=0)
     image_url: Optional[str] = None
     items: Optional[List[ComboItem]] = Field(None, min_length=1)
     active: Optional[bool] = None
@@ -503,7 +506,7 @@ class ComboItemDetailed(BaseModel):
     product_id: str = Field(..., description="ID del producto")
     quantity: int = Field(..., description="Cantidad en el combo")
     name: str = Field(..., description="Nombre del producto")
-    price: float = Field(..., description="Precio unitario del producto")
+    price: Money = Field(..., description="Precio unitario del producto")
     image_url: Optional[str] = Field(None, description="URL de la imagen del producto")
     stock: int = Field(..., description="Stock disponible del producto")
 
@@ -512,14 +515,14 @@ class ComboDetailed(BaseModel):
     id: PyObjectId = Field(alias="_id")
     name: str
     description: Optional[str] = None
-    price: float
+    price: Money
     image_url: Optional[str] = None
     items: List[ComboItemDetailed]
     active: bool
     created_at: datetime
     updated_at: datetime
-    total_items_cost: Optional[float] = Field(None, description="Suma del precio de todos los productos individuales")
-    savings: Optional[float] = Field(None, description="Ahorro al comprar el combo (total_items_cost - price)")
+    total_items_cost: Optional[Money] = Field(None, description="Suma del precio de todos los productos individuales")
+    savings: Optional[Money] = Field(None, description="Ahorro al comprar el combo (total_items_cost - price)")
     
     model_config = ConfigDict(
         populate_by_name=True,
@@ -534,7 +537,7 @@ class DynamicPricingSettings(BaseModel):
     """Configuración para ajuste automático de precios (ej: de viernes a domingo)"""
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
     enabled: bool = Field(default=False, description="Activar o desactivar ajuste de precios automático")
-    multiplier: float = Field(default=1.0, description="Multiplicador de precio (ej: 0.9 para 10% de descuento, 1.1 para 10% de aumento)")
+    multiplier: Money = Field(default=Decimal("1.00"), description="Multiplicador de precio (ej: 0.9 para 10% de descuento, 1.1 para 10% de aumento)")
     start_day: int = Field(default=5, ge=1, le=7, description="Día de inicio (1=Lunes, 5=Viernes, 7=Domingo)")
     end_day: int = Field(default=7, ge=1, le=7, description="Día de fin")
     start_hour: int = Field(default=20, ge=0, le=23, description="Hora de inicio (0-23)")
@@ -551,7 +554,7 @@ class DynamicPricingSettings(BaseModel):
 class DynamicPricingUpdate(BaseRequestModel):
     """Modelo para actualizar configuración de precios dinámicos"""
     enabled: bool
-    multiplier: float = Field(..., gt=0)
+    multiplier: Money = Field(..., gt=0)
     start_day: int = Field(..., ge=1, le=7)
     end_day: int = Field(..., ge=1, le=7)
     start_hour: int = Field(..., ge=0, le=23)
@@ -559,7 +562,7 @@ class DynamicPricingUpdate(BaseRequestModel):
 
 class BulkPriceUpdate(BaseRequestModel):
     """Modelo para actualizar precios masivamente"""
-    percentage: float = Field(..., description="Porcentaje de aumento (ej: 0.10 para 10%)")
+    percentage: Money = Field(..., description="Porcentaje de aumento (ej: 0.10 para 10%)")
     target: str = Field("all", description="Objetivo de la actualización: 'all' o ID de categoría")
     based_on: str = Field("price", description="Base para el aumento: 'price' (precio venta actual) o 'net_price' (precio costo)")
 

@@ -2,7 +2,7 @@
 
 Public API (see design §2.7):
   - get_shipping_prices(db) -> dict
-  - calculate_shipping_cost(db, zone, total_items, has_combo) -> float
+  - calculate_shipping_cost(db, zone, total_items, has_combo) -> Decimal
 
 All functions receive db: AsyncIOMotorDatabase and return domain dicts or scalars.
 """
@@ -10,9 +10,12 @@ All functions receive db: AsyncIOMotorDatabase and return domain dicts or scalar
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
+
+from utils.money import from_decimal128
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +25,17 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_PRICES: dict = {
     "central": {
-        "price": 0.0,
+        "price": Decimal("0.00"),
         "description": "🎁 ENVÍO GRATIS - Zona Céntrica de Santa María",
         "enabled": True,
     },
     "remote": {
-        "price": 1000.0,
+        "price": Decimal("1000.00"),
         "description": "🚛 Envío a Zonas Alejadas",
         "enabled": True,
     },
     "pickup": {
-        "price": 0.0,
+        "price": Decimal("0.00"),
         "description": "🏪 Retiro en Persona - GRATIS",
         "address": "Configurar dirección en panel de administración",
         "enabled": True,
@@ -67,7 +70,7 @@ async def get_shipping_prices(
     # Central zone
     if settings.get("central_zone_enabled", True):
         response["central"] = {
-            "price": settings.get("central_zone_price", 0.0),
+            "price": from_decimal128(settings.get("central_zone_price", Decimal("0.00"))),
             "description": settings.get(
                 "central_zone_description",
                 _DEFAULT_PRICES["central"]["description"],
@@ -78,7 +81,7 @@ async def get_shipping_prices(
     # Remote zone
     if settings.get("remote_zone_enabled", True):
         response["remote"] = {
-            "price": settings.get("remote_zone_price", 1000.0),
+            "price": from_decimal128(settings.get("remote_zone_price", Decimal("1000.00"))),
             "description": settings.get(
                 "remote_zone_description",
                 _DEFAULT_PRICES["remote"]["description"],
@@ -89,7 +92,7 @@ async def get_shipping_prices(
     # Pickup
     if settings.get("pickup_enabled", True):
         response["pickup"] = {
-            "price": settings.get("pickup_price", 0.0),
+            "price": from_decimal128(settings.get("pickup_price", Decimal("0.00"))),
             "description": settings.get(
                 "pickup_description",
                 _DEFAULT_PRICES["pickup"]["description"],
@@ -109,7 +112,7 @@ async def calculate_shipping_cost(
     zone: str,
     total_items: int,
     has_combo: bool,
-) -> float:
+) -> Decimal:
     """Compute the shipping cost for an order based on zone and cart contents.
 
     * ``central``: free when *total_items >= 2* or *has_combo* is True.
@@ -123,14 +126,18 @@ async def calculate_shipping_cost(
                 total_items,
                 has_combo,
             )
-            return 0.0
+            return Decimal("0.00")
 
         settings = await db["shipping_settings"].find_one({})
-        return float(settings.get("central_zone_price", 0.0)) if settings else 0.0
+        return from_decimal128(
+            settings.get("central_zone_price", Decimal("0.00"))
+        ) if settings else Decimal("0.00")
 
     if zone == "remote":
         settings = await db["shipping_settings"].find_one({})
-        return float(settings.get("remote_zone_price", 1000.0)) if settings else 1000.0
+        return from_decimal128(
+            settings.get("remote_zone_price", Decimal("1000.00"))
+        ) if settings else Decimal("1000.00")
 
     # pickup — always free
-    return 0.0
+    return Decimal("0.00")

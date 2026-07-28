@@ -2,23 +2,28 @@
 Servicio de email usando Resend para notificar a admins sobre nuevas órdenes.
 """
 import html
+from decimal import Decimal
 import resend
 from config import settings
+from utils.money import quantize_money
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-async def send_new_order_notification(order_id: str, user_email: str, total_amount: float, payment_method: str):
+async def send_new_order_notification(order_id: str, user_email: str, total_amount: Decimal, payment_method: str):
     """
     Envía un email a TODOS los admins notificando sobre una nueva orden usando Resend.
     
     Args:
         order_id: ID de la orden creada
         user_email: Email del usuario que hizo la orden
-        total_amount: Monto total de la orden
+        total_amount: Monto total de la orden (Decimal)
         payment_method: Método de pago seleccionado
     """
+    # Coerce to Decimal if needed (transition window: callers may pass float)
+    if not isinstance(total_amount, Decimal):
+        total_amount = Decimal(str(total_amount))
     # Si el email no está habilitado, solo loguear
     if not settings.EMAIL_ENABLED:
         logger.info(f"📧 Email deshabilitado. Nueva orden #{order_id} - ${total_amount} - {payment_method}")
@@ -54,7 +59,7 @@ async def send_new_order_notification(order_id: str, user_email: str, total_amou
         # Escape user-provided values to prevent XSS in HTML emails
         safe_order_id = html.escape(str(order_id))
         safe_user_email = html.escape(str(user_email))
-        safe_total_amount = html.escape(str(total_amount))
+        safe_total_amount = html.escape(str(quantize_money(total_amount)))
         safe_payment_method = html.escape(str(payment_method))
 
         # Crear el contenido HTML del email

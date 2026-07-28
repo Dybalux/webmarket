@@ -7,6 +7,7 @@ from typing import List, Dict
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorClientSession
 from fastapi import HTTPException, status
+from utils.money import from_decimal128
 import logging
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ async def validate_and_reserve_stock(
         validated_products.append({
             "product_id": str(product["_id"]),
             "name": product["name"],
-            "price": product["price"],
+            "price": from_decimal128(product["price"]),
             "quantity": quantity,
             "current_stock": current_stock
         })

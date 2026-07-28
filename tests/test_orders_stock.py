@@ -52,7 +52,7 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 
 import pytest
-from bson import ObjectId
+from bson import ObjectId, Decimal128
 from fastapi import FastAPI
 
 from routers import inventory as inventory_router
@@ -439,20 +439,20 @@ async def _seed_delivered_order(orders, products, user_id: str) -> tuple[str, li
                     "product_id": str(quilmes["_id"]),
                     "name": "Quilmes 1L",
                     "quantity": 2,
-                    "price_at_purchase": 1500.0,
+                    "price_at_purchase": Decimal128("1500.00"),
                 },
                 {
                     "product_id": str(stella["_id"]),
                     "name": "Stella Artois 1L",
                     "quantity": 1,
-                    "price_at_purchase": 2200.0,
+                    "price_at_purchase": Decimal128("2200.00"),
                 },
             ],
-            "total_amount": 5200.0,
+            "total_amount": Decimal128("5200.00"),
             "status": OrderStatus.DELIVERED.value,
             "shipping_address": VALID_ADDRESS.model_dump(),
             "shipping_zone": "pickup",
-            "shipping_cost": 0.0,
+            "shipping_cost": Decimal128("0.00"),
             "payment_method": PaymentMethod.MERCADO_PAGO.value,
             "created_at": datetime.now(tz=timezone.utc),
             "updated_at": datetime.now(tz=timezone.utc),
